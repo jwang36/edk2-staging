@@ -21,7 +21,7 @@
 
 [Includes]
   Include
-  MicroPython
+  MicroPythonDxe\micropython
 
 [LibraryClasses]
   ##  @libraryclass  Defines some routines that are generic for IA32 family CPU

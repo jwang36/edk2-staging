@@ -6,4 +6,4 @@
 	url = https://github.com/kkos/oniguruma
 [submodule "MicroPythonPkg\\MicroPythonDxe\\micropython"]
 	path = MicroPythonPkg/MicroPythonDxe/micropython
-	url = https://github.com/micropython/micropython
+	url = https://github.com/jwang36/micropython.git

@@ -20,9 +20,9 @@
   VERSION_STRING              = 0.1
   ENTRY_POINT                 = MicroPythonDriverInitialize
   UNLOAD_IMAGE                = MicroPythonDriverUnload
-  DEFINE MICROPYTHON_PATH     = ../MicroPython
+  DEFINE MICROPYTHON_PATH     = micropython
   DEFINE MICROPYTHON_OVERRIDE = Uefi/Override/MicroPython
-  DEFINE ONIGURUMA_PATH       = ../Oniguruma/src
+  DEFINE ONIGURUMA_PATH       = oniguruma/src
   DEFINE ONIGURUMA_OVERRIDE   = Uefi/Override/Oniguruma/src
 #
 #  VALID_ARCHITECTURES        = IA32 X64
@@ -47,6 +47,7 @@
   TimerLib
   SortLib
   DevicePathLib
+  IntrinsicLib
 
 [Pcd]
   gEfiShellPkgTokenSpaceGuid.PcdShellVendorExtendedDecode
@@ -152,7 +153,7 @@
   $(MICROPYTHON_PATH)/py/warning.c
 
 #Override for EFI
-  $(MICROPYTHON_OVERRIDE)/py/nlr.c
+  $(MICROPYTHON_PATH)/py/nlr.c
 
 #lib
   $(MICROPYTHON_PATH)/lib/mp-readline/readline.c
@@ -181,7 +182,6 @@
   Uefi/uefi_mphal.c
   Uefi/misc.c
   Uefi/modre.c
-  Uefi/string.c
 
 #Socket support
   Uefi/moduefi.c
@@ -223,12 +223,10 @@
   $(ONIGURUMA_PATH)/regcomp.c
   $(ONIGURUMA_PATH)/regenc.c
   $(ONIGURUMA_PATH)/regerror.c
-  #$(ONIGURUMA_PATH)/regexec.c
-  $(ONIGURUMA_OVERRIDE)/regexec.c
+  $(ONIGURUMA_PATH)/regexec.c
   $(ONIGURUMA_PATH)/regext.c
   $(ONIGURUMA_PATH)/reggnu.c
-  #$(ONIGURUMA_PATH)/regparse.c
-  $(ONIGURUMA_OVERRIDE)/regparse.c
+  $(ONIGURUMA_PATH)/regparse.c
   $(ONIGURUMA_PATH)/regposerr.c
   $(ONIGURUMA_PATH)/regposix.c
   $(ONIGURUMA_PATH)/regsyntax.c
@@ -249,17 +247,14 @@
   $(ONIGURUMA_PATH)/utf8.c
 
 [Sources.X64]
-  $(MICROPYTHON_OVERRIDE)/py/X64/emitnx64.c
-  $(MICROPYTHON_OVERRIDE)/py/X64/asmx64.c
-  $(MICROPYTHON_OVERRIDE)/py/X64/nlrsetjmp.nasm
+  $(MICROPYTHON_PATH)/py/emitnx64.c
+  $(MICROPYTHON_PATH)/py/asmx64.c
+  X64/asmnlr.nasm
 
 [Sources.IA32]
   $(MICROPYTHON_PATH)/py/emitnx86.c
   $(MICROPYTHON_PATH)/py/asmx86.c
-  $(MICROPYTHON_OVERRIDE)/py/Ia32/nlrsetjmp.nasm
-
-  # Compiler helper (C RunTime) functions
-  Uefi/Ia32/Intrinsic.c | MSFT
+  Ia32/asmnlr.nasm
 
 [Protocols]
   gEfiScriptEngineProtocolGuid     ## PRODUCES
@@ -284,8 +279,11 @@
   TRUE
 
 [BuildOptions]
-  MSFT:*_*_*_CC_FLAGS = /wd4117 /wd4706 /wd4459 /wd4244 /wd4204 /wd4267 /wd4389 /wd4245 /wd4146 /wd4305 /wd4310 /wd4018 /wd4132 /wd4221 /wd4053 /wd4201 /wd4715 /wd4716 /wd4702 /wd4152 /wd4055 /wd4456 /wd4311 /wd4090
-  MSFT:*_*_*_CC_FLAGS = /Oi- /GL-
+  # For MicroPython
+  MSFT:*_*_*_CC_FLAGS = /wd4117 /wd4706 /wd4459 /wd4244 /wd4204 /wd4267 /wd4389 /wd4245 /wd4146 /wd4305 /wd4310 /wd4018 /wd4132 /wd4221 /wd4053 /wd4201 /wd4715 /wd4716 /wd4702 /wd4152 /wd4055 /wd4456 /wd4311 /wd4090 /wd4700
+  GCC:*_*_*_CC_FLAGS  = -std=c99
 
   # For Oniguruma
   MSFT:*_*_*_CC_FLAGS = /wd4701 /wd4164 /wd4131 /wd4054 /wd4306
+  GCC:*_*_*_CC_FLAGS  = -Wno-unused-but-set-variable -Wno-maybe-uninitialized
+

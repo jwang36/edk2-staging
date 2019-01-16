@@ -205,7 +205,7 @@ def main(args):
         pkg_incs += get_pkg_inc(pkg, args.arch)
     inc_paths = pkg_incs + inc_paths
 
-    mpy_dir = os.path.join(inf_path, "..", "MicroPython")
+    mpy_dir = os.path.join(inf_path, "micropython")
     qstr_dir = os.path.join(inf_path, "Uefi", "genhdr", "qstr")
     collected_qstr_file = os.path.join(inf_path, "Uefi", "genhdr", "qstrdefs.collected.h")
     qstr_file = os.path.join(inf_path, "Uefi", "genhdr", "qstrdefs.generated.h")

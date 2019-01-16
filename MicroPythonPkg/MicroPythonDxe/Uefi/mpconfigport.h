@@ -38,12 +38,13 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
  */
 
 // options to control how Micro Python is built
-#define MICROPY_NLR_SETJMP          (0)
 
-#if   defined (_WIN64) || defined (__x86_64__)
-#define MICROPY_EMIT_X64            (1)
-#else
-#define MICROPY_EMIT_X86            (1)
+#if defined(_WIN64)
+    #define MICROPY_EMIT_X64                      (1)
+    #define MICROPY_NLR_SETJMP                    (0)
+#elif defined(_WIN32)
+    #define MICROPY_EMIT_X86                      (1)
+    #define MICROPY_NLR_SETJMP                    (0)
 #endif
 
 #define MICROPY_PY_IO_BUFFEREDWRITER              (1)
