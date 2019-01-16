@@ -185,7 +185,6 @@ extern const struct _mp_obj_module_t mp_module__re;
 
 typedef INTN    mp_int_t;
 typedef UINTN   mp_uint_t;
-typedef UINTN   u_int;
 typedef INTN    ssize_t;
 typedef INT64   off_t;
 

@@ -32,7 +32,6 @@
 
 #define SIZEOF_LONG sizeof(long)
 #define SIZEOF_INT  sizeof(int)
-typedef UINTN size_t;
 
 extern void *m_malloc(size_t num_bytes);
 

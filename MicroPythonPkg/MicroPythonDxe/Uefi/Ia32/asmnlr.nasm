@@ -15,35 +15,34 @@
 ;*
 ;------------------------------------------------------------------------------
 
-    .model flat
-    .code
+    DEFAULT REL
+    SECTION .text
 
-EXTERN      _nlr_push_tail:PROC
+extern ASM_PFX(nlr_push_tail)
 
-_nlr_push   PROC
+global ASM_PFX(nlr_push)
+ASM_PFX(nlr_push):
     pop     ecx                         ; ecx <- return address
     mov     edx, [esp]                  ; edx <- nlr
-    mov     [edx + 08h], ecx            ; eip value to restore in nlr_jump
-    mov     [edx + 0Ch], ebp
-    mov     [edx + 10h], esp
-    mov     [edx + 14h], ebx
-    mov     [edx + 18h], edi
-    mov     [edx + 1Ch], esi
+    mov     [edx + 0x08], ecx           ; eip value to restore in nlr_jump
+    mov     [edx + 0x0C], ebp
+    mov     [edx + 0x10], esp
+    mov     [edx + 0x14], ebx
+    mov     [edx + 0x18], edi
+    mov     [edx + 0x1C], esi
 
-    push    ecx                        ; make sure nlr_push_tail return back to nlr_push's caller()
-    jmp     _nlr_push_tail             ; do the rest in C
-_nlr_push   ENDP
+    push    ecx                         ; make sure nlr_push_tail return back to nlr_push's caller()
+    jmp     _nlr_push_tail              ; do the rest in C
 
-_asm_nlr_jump PROC
+global ASM_PFX(asm_nlr_jump)
+ASM_PFX(asm_nlr_jump):
     pop     eax                         ; skip return address
     pop     edx                         ; edx <- nlr (top)
     pop     eax                         ; eax <- val
-    mov     esi, [edx + 1Ch]
-    mov     edi, [edx + 18h]
-    mov     ebx, [edx + 14h]
-    mov     esp, [edx + 10h]
-    mov     ebp, [edx + 0Ch]
-    jmp     dword ptr [edx + 08h]       ; restore "eip"
-_asm_nlr_jump ENDP
+    mov     esi, [edx + 0x1C]
+    mov     edi, [edx + 0x18]
+    mov     ebx, [edx + 0x14]
+    mov     esp, [edx + 0x10]
+    mov     ebp, [edx + 0x0C]
+    jmp     dword [edx + 0x08]          ; restore "eip"
 
-    END

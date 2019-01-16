@@ -57,6 +57,7 @@
   # Misc
   #
   DebugPrintErrorLevelLib|MdePkg/Library/BaseDebugPrintErrorLevelLib/BaseDebugPrintErrorLevelLib.inf  
+  IntrinsicLib|MicroPythonPkg/Library/BaseIntrinsicLib/BaseIntrinsicLib.inf
 
 [LibraryClasses.common.DXE_DRIVER]
   MemoryAllocationLib|MdePkg/Library/UefiMemoryAllocationLib/UefiMemoryAllocationLib.inf

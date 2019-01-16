@@ -50,7 +50,6 @@ typedef UINT8   u_int8_t;
 typedef UINT16  u_int16_t;
 typedef UINT32  u_int32_t;
 typedef UINT64  u_int64_t;
-typedef UINTN   u_int;
 
 typedef UINT8   uint8_t;
 typedef UINT16  uint16_t;

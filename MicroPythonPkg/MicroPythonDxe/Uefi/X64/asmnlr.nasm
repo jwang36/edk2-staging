@@ -18,6 +18,8 @@
     DEFAULT REL
     SECTION .text
 
+extern ASM_PFX(nlr_push_tail)
+
 global ASM_PFX(nlr_push)
 ASM_PFX(nlr_push):
     pop     rdx                 ; load rip as well as fix rsp
@@ -48,5 +50,5 @@ ASM_PFX(asm_nlr_jump):
     mov     r15, [rcx + 0x50]
 
     mov     rax, rdx                    ; set return value
-    jmp     qword ptr [rcx + 0x58]      ; rip
+    jmp     qword [rcx + 0x58]      ; rip
 

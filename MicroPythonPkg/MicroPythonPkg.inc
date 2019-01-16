@@ -18,6 +18,7 @@
     <LibraryClasses>
       FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
       SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
+      IntrinsicLib|MicroPythonPkg/Library/BaseIntrinsicLib/BaseIntrinsicLib.inf
   }
 
   MicroPythonPkg/MicroPythonApp/MicroPython.inf {
