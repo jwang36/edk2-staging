@@ -132,14 +132,8 @@ STATIC const mp_rom_map_elem_t uefi_module_globals_table[] = {
   { MP_ROM_QSTR(MP_QSTR_guid), MP_ROM_PTR(&mp_type_guid) },
   { MP_ROM_QSTR(MP_QSTR_null), MP_ROM_PTR(&mp_nullptr_obj)},
   { MP_ROM_QSTR(MP_QSTR_efistatus), MP_ROM_PTR(&mp_type_efistatus) },
-
   { MP_ROM_QSTR(MP_QSTR_listfs), MP_ROM_PTR(&moduefi_listfs_obj) },
-
-#if defined(MDE_CPU_IA32)
-  { MP_ROM_QSTR(MP_QSTR_arch), MP_ROM_QSTR(MP_QSTR_IA32) },
-#elif defined(MDE_CPU_X64)
-  { MP_ROM_QSTR(MP_QSTR_arch), MP_ROM_QSTR(MP_QSTR_X64) },
-#endif
+  { MP_ROM_QSTR(MP_QSTR_arch), MP_ROM_QSTR(MDE_CPU_ARCH) },
 
   { MP_ROM_QSTR(MP_QSTR_gBS), MP_ROM_PTR(&mp_gBS_obj) },
   { MP_ROM_QSTR(MP_QSTR_gRT), MP_ROM_PTR(&mp_gRT_obj) },

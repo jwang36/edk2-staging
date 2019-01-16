@@ -201,11 +201,6 @@ typedef INT64   off_t;
 
 // MSVC specifics
 #ifdef _MSC_VER
-#if   defined (_WIN64)
-#define __x86_64__
-#else
-#define __i386__
-#endif
 
 // Sanity check
 
@@ -248,5 +243,11 @@ typedef INT64   off_t;
 #include <stddef.h> //for NULL
 #include <Library/DebugLib.h> //for ASSERT
 #include <Library/BaseLib.h>
+
+#if defined(MDE_CPU_IA32)
+  #define MDE_CPU_ARCH      MP_QSTR_IA32
+#elif defined(MDE_CPU_X64)
+  #define MDE_CPU_ARCH      MP_QSTR_X64
+#endif
 
 #endif

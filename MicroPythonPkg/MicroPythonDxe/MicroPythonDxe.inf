@@ -189,8 +189,6 @@
   Uefi/modtime.c
   Uefi/modos.c
 
-#Platform specific
-  Uefi/modmachine.c
 
 #Regular Expression: Oniguruma
   Uefi/onigurumaglue.c
@@ -249,12 +247,14 @@
 [Sources.X64]
   $(MICROPYTHON_PATH)/py/emitnx64.c
   $(MICROPYTHON_PATH)/py/asmx64.c
-  X64/asmnlr.nasm
+  Uefi/X64/asmnlr.nasm
+  Uefi/X64/modmachine.c
 
 [Sources.IA32]
   $(MICROPYTHON_PATH)/py/emitnx86.c
   $(MICROPYTHON_PATH)/py/asmx86.c
-  Ia32/asmnlr.nasm
+  Uefi/Ia32/asmnlr.nasm
+  Uefi/Ia32/modmachine.c
 
 [Protocols]
   gEfiScriptEngineProtocolGuid     ## PRODUCES

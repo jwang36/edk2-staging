@@ -1188,20 +1188,25 @@ STATIC mp_obj_t efi_fptr_call(mp_obj_t self_in, size_t n_args, size_t n_kw, cons
       }
       break;
 
-#if defined(MDE_CPU_IA32)
     case 'Q':
     case 'q':
-      if (is_va || MP_OBJ_IS_MEM(arg)) {
-        memobj = MP_OBJ_TO_PTR(arg);
-        longval = get_uint64(get_value(memobj, mp_const_none));
-      } else {
-        longval = get_uint64(arg);
-      }
-      arglist[j++] = (UINTN)longval;
-      arglist[j++] = *((UINTN *)&longval + 1);
-      break;
-#endif
+      if (sizeof(UINTN) == sizeof(UINT32)) {
+        if (is_va || MP_OBJ_IS_MEM(arg)) {
+          memobj = MP_OBJ_TO_PTR(arg);
+          longval = get_uint64(get_value(memobj, mp_const_none));
+        } else {
+          longval = get_uint64(arg);
+        }
 
+        arglist[j++] = (UINTN)longval;
+        arglist[j++] = *((UINTN *)&longval + 1);
+
+        break;
+      } else {
+        //
+        // fall through
+        //
+      }
     default:
       if (is_va || MP_OBJ_IS_MEM(arg)) {
         memobj = MP_OBJ_TO_PTR(arg);
