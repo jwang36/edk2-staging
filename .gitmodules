@@ -1,9 +1,9 @@
 [submodule "CryptoPkg/Library/OpensslLib/openssl"]
 	path = CryptoPkg/Library/OpensslLib/openssl
 	url = https://github.com/openssl/openssl
-[submodule "MicroPythonPkg/MicroPython"]
-	path = MicroPythonPkg/MicroPython
-	url = https://github.com/micropython/micropython.git
-[submodule "MicroPythonPkg/Oniguruma"]
-	path = MicroPythonPkg/Oniguruma
+[submodule "MicroPythonPkg\\MicroPythonDxe\\oniguruma"]
+	path = MicroPythonPkg\\MicroPythonDxe\\oniguruma
 	url = https://github.com/kkos/oniguruma
+[submodule "MicroPythonPkg\\MicroPythonDxe\\micropython"]
+	path = MicroPythonPkg\\MicroPythonDxe\\micropython
+	url = https://github.com/micropython/micropython
