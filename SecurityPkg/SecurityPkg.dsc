@@ -66,6 +66,7 @@
   ResetSystemLib|MdeModulePkg/Library/BaseResetSystemLibNull/BaseResetSystemLibNull.inf
   VariableKeyLib|SecurityPkg/Library/VariableKeyLibNull/VariableKeyLibNull.inf
   RpmcLib|SecurityPkg/Library/RpmcLibNull/RpmcLibNull.inf
+  EncryptionVariableLib|SecurityPkg/Library/EncryptionVariableLibNull/EncryptionVariableLibNull.inf
 
 [LibraryClasses.ARM]
   #
@@ -225,6 +226,7 @@
   #
   SecurityPkg/Library/VariableKeyLibNull/VariableKeyLibNull.inf
   SecurityPkg/Library/RpmcLibNull/RpmcLibNull.inf
+  SecurityPkg/Library/EncryptionVariableLibNull/EncryptionVariableLibNull.inf
 
   #
   # Other
