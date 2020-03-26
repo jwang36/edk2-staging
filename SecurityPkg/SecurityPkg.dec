@@ -84,6 +84,10 @@
   #
   VariableKeyLib|Include/Library/VariableKeyLib.h
 
+  ## @libraryclass  Provides interfaces to encrypt/decrypt variable.
+  #
+  EncryptionVariableLib|Include/Library/EncryptionVariableLib.h
+
 [Guids]
   ## Security package token space guid.
   # Include/Guid/SecurityPkgTokenSpace.h
