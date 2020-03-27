@@ -53,6 +53,8 @@ VARIABLE_INFO_ENTRY             *mVariableInfo              = NULL;
 VARIABLE_STORE_HEADER           *mVariableRuntimeHobCacheBuffer           = NULL;
 VARIABLE_STORE_HEADER           *mVariableRuntimeNvCacheBuffer            = NULL;
 VARIABLE_STORE_HEADER           *mVariableRuntimeVolatileCacheBuffer      = NULL;
+VARIABLE_STORE_HEADER           *mNvVariableCache                         = NULL;
+VARIABLE_MODULE_GLOBAL          *mVariableModuleGlobal                    = NULL;
 UINTN                            mVariableBufferSize;
 UINTN                            mVariableRuntimeHobCacheBufferSize;
 UINTN                            mVariableRuntimeNvCacheBufferSize;
@@ -1561,6 +1563,7 @@ SmmVariableReady (
   )
 {
   EFI_STATUS                                Status;
+  PROTECTED_VARIABLE_CONTEXT_IN             ContextIn;
 
   Status = gBS->LocateProtocol (&gEfiSmmVariableProtocolGuid, NULL, (VOID **) &mSmmVariable);
   if (EFI_ERROR (Status)) {
@@ -1655,6 +1658,26 @@ SmmVariableReady (
                   NULL
                   );
   ASSERT_EFI_ERROR (Status);
+
+  //
+  // Initialize protected variable service, if enabled.
+  //
+  ContextIn.StructSize      = sizeof(ContextIn);
+  ContextIn.StructVersion   = PROTECTED_VARIABLE_CONTEXT_IN_STRUCT_VERSION;
+
+  ContextIn.FindVariableSmm     = FindVariableInSmm;
+  ContextIn.GetVariableInfo     = GetVariableInfo;
+  ContextIn.GetNextVariableInfo = GetNextVariableInfo;
+  ContextIn.VariableServiceUser = FromRuntimeModule;
+  ContextIn.MaxVariableSize     = 0;
+  ContextIn.IsUserVariable      = NULL;
+  ContextIn.UpdateVariableStore = NULL;
+  ContextIn.InitVariableStore   = NULL;
+
+  Status = ProtectedVariableLibInitialize (&ContextIn);
+  if (EFI_ERROR (Status)) {
+    ASSERT_EFI_ERROR (Status);
+  }
 
   gBS->CloseEvent (Event);
 }

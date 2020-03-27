@@ -1481,6 +1481,7 @@ SetVariableData (
   IN      EFI_TIME            *TimeStamp
   )
 {
+  EFI_STATUS  Status;
   BOOLEAN     AuthFormat;
   UINT8       *DataPtr;
   UINTN       NameSize;
@@ -1529,8 +1530,21 @@ SetVariableData (
       (OldVariable->State == VAR_ADDED ||
        OldVariable->State == (VAR_ADDED & VAR_IN_DELETED_TRANSITION)))
   {
-    OldDataSize = DataSizeOfVariable (OldVariable, AuthFormat);
-    CopyMem (DataPtr, GetVariableDataPtr (OldVariable, AuthFormat), OldDataSize);
+    //
+    // Get old data, which might be encrypted.
+    //
+    OldDataSize = mVariableModuleGlobal->ScratchBufferSize
+                  - ((UINTN)DataPtr - (UINTN)NewVariable);
+    Status = ProtectedVariableLibGetData (OldVariable, DataPtr, (UINT32 *)&OldDataSize,
+                                          AuthFormat);
+    if (Status == EFI_UNSUPPORTED) {
+      OldDataSize = DataSizeOfVariable (OldVariable, AuthFormat);
+      CopyMem (DataPtr, GetVariableDataPtr (OldVariable, AuthFormat), OldDataSize);
+    } else if (EFI_ERROR (Status)) {
+      ASSERT_EFI_ERROR (Status);
+      return 0;
+    }
+
     DataPtr += OldDataSize;
     //
     // Update data size.
@@ -2075,6 +2089,7 @@ UpdateVariable (
   VARIABLE_HEADER                     *UpdatingVariable;
   UINTN                               VarSize;
   UINTN                               UpdateSize;
+  UINTN                               Offset;
   VARIABLE_POINTER_TRACK              *Variable;
   VARIABLE_POINTER_TRACK              NvVariable;
   VARIABLE_STORE_HEADER               *VariableStoreHeader;
@@ -2206,6 +2221,30 @@ UpdateVariable (
   }
 
   //
+  // We might need to do protection for non-volatile variable before flushing
+  // the data to storage. A null version (meaning no protection) of following
+  // APIs should simply return EFI_SUCCESS or EFI_UNSUPPORTED without any
+  // changes to original data.
+  //
+  if (!VolatileFlag) {
+    Status = ProtectedVariableLibWriteInit ();
+    if (!EFI_ERROR (Status)) {
+      Status = ProtectedVariableLibUpdate (
+                 Variable->CurrPtr,
+                 Variable->InDeletedTransitionPtr,
+                 NewVariable,
+                 &VarSize
+                 );
+    }
+
+    if (EFI_ERROR (Status) && Status != EFI_UNSUPPORTED) {
+      return Status;
+    }
+
+    Status = EFI_SUCCESS;
+  }
+
+  //
   // Mark the old variable as in delete transition first. There's no such need
   // for deleting a variable, even if variable protection is employed.
   //
@@ -2298,12 +2337,12 @@ UpdateVariable (
     // & reclaim operation, and integrate the new variable at the same time.
     //
     UpdatingVariable = NewVariable;
-    Status = Reclaim (
+    Status = ReclaimEx (
                VarStoreBase,
                LastVariableOffset,
                VolatileFlag,
                Variable,
-               UpdatingVariable,
+               &UpdatingVariable,
                VarSize
                );
 
@@ -2335,6 +2374,21 @@ UpdateVariable (
 
 Done:
   if (!EFI_ERROR (Status)) {
+    if (!VolatileFlag) {
+      Offset = (UpdatingVariable != NULL) ? (UINTN)UpdatingVariable - (UINTN)VarStoreBase
+                                          : 0;
+      Status = ProtectedVariableLibWriteFinal (
+                 NewVariable,
+                 VarSize,
+                 Offset
+                 );
+      if (EFI_ERROR (Status) && Status != EFI_UNSUPPORTED) {
+        return Status;
+      }
+
+      Status = EFI_SUCCESS;
+    }
+
     UpdateVariableInfo (VariableName, VendorGuid, VolatileFlag, FALSE, TRUE,
                         FALSE, FALSE, &gVariableInfo);
     //
@@ -2422,7 +2476,16 @@ VariableServiceGetVariable (
   //
   // Get data and its size
   //
-  Status = GetVariableData (Variable.CurrPtr, Data, (UINT32 *)DataSize, mVariableModuleGlobal->VariableGlobal.AuthFormat);
+  if (!Variable.Volatile) {
+    //
+    // Currently only non-volatile variable needs protection.
+    //
+    Status = ProtectedVariableLibGetData (Variable.CurrPtr, Data, (UINT32 *)DataSize, mVariableModuleGlobal->VariableGlobal.AuthFormat);
+  }
+
+  if (Variable.Volatile || Status == EFI_UNSUPPORTED) {
+    Status = GetVariableData (Variable.CurrPtr, Data, (UINT32 *)DataSize, mVariableModuleGlobal->VariableGlobal.AuthFormat);
+  }
 
   if (!EFI_ERROR (Status)) {
 
@@ -3661,7 +3724,7 @@ VariableCommonInitialize (
   //
   // Allocate memory for volatile variable store, note that there is a scratch space to store scratch data.
   //
-  ScratchSize = GetMaxVariableSize ();
+  ScratchSize = GetMaxVariableSize () * 2;
   mVariableModuleGlobal->ScratchBufferSize = ScratchSize;
   VolatileVariableStore = AllocateRuntimePool (PcdGet32 (PcdVariableStoreSize) + ScratchSize);
   if (VolatileVariableStore == NULL) {
