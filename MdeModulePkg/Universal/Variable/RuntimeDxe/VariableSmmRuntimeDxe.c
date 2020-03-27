@@ -13,7 +13,7 @@
 
   InitCommunicateBuffer() is really function to check the variable data size.
 
-Copyright (c) 2010 - 2019, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2010 - 2020, Intel Corporation. All rights reserved.<BR>
 Copyright (c) Microsoft Corporation.<BR>
 SPDX-License-Identifier: BSD-2-Clause-Patent
 
@@ -40,6 +40,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/SmmVariableCommon.h>
 
 #include "PrivilegePolymorphic.h"
+#include "Variable.h"
 #include "VariableParsing.h"
 
 EFI_HANDLE                       mHandle                    = NULL;
