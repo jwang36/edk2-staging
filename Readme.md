@@ -14,51 +14,6 @@ From Microsoft Windows 10 [1903](https://go.microsoft.com/fwlink/?linkid=2086856
 
 The main functionalities of integrity and confidentiality are provided through [ProtectedVariableLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/ProtectedVariableLib.h) library, which employs [EncryptionVariableLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/EncryptionVariableLib.h) to do encryption/description works, [RpmcLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/RpmcLib.h) to operate Replay Protected Monotonic Counter for replay protection, and [VariableKeyLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/VariableKeyLib.h) to access hardware generated root key for integrity check and data encryption for variables.
 
-``` mermaid
-classDiagram
-
-    class ProtectedVariableLib {
-        <<edk2>>
-        ProtectedVariableLibInitialize()
-        ProtectedVariableLibGetData()
-        ProtectedVariableLibGetDataInfo()
-        ProtectedVariableLibWriteInit()
-        ProtectedVariableLibUpdate()
-        ProtectedVariableLibWriteFinal()
-        ProtectedVariableLibGetStore()
-        ProtectedVariableLibReclaim()
-    }
-    link ProtectedVariableLib "https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/ProtectedVariableLib.h"
-
-    class EncryptionVariableLib {
-        <<edk2>>
-        EncryptVariable()
-        DecryptVariable()
-        GetCipherDataInfo()
-        SetCipherDataInfo()
-    }
-    link EncryptionVariableLib "https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/EncryptionVariableLib.h"
-
-    class RpmcLib {
-        <<platform>>
-        RequestMonotonicCounter()
-        IncrementMonotonicCounter()
-    }
-    link RpmcLib "https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/RpmcLib.h"
-
-    class VariableKeyLib {
-        <<platform>>
-        GetVariableKey()
-        RegenerateVariableKey()
-        LockVariableKeyInterface()
-    }
-    link VariableKeyLib "https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/VariableKeyLib.h"
-
-    ProtectedVariableLib ..> EncryptionVariableLib
-    ProtectedVariableLib ..> RpmcLib
-    ProtectedVariableLib ..> VariableKeyLib
-
-```
 ![alternative text](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/jwang36/edk2-staging/ProtectedVariable/libs/LibClass.puml)
 
 [RpmcLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/RpmcLib.h) and [VariableKeyLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/VariableKeyLib.h) rely on platform to provide related functionalities and then should be instantiated by platform. Edk2 only provides null version of instances ([RpmcLibNull](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/RpmcLibNull) and [VariableKeyLib](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/VariableKeyLibNull)) for build purpose. Don't use them in real product.
@@ -68,14 +23,7 @@ ProtectedVariableLib will use the key got from VariableKeyLib to derive two keys
 - MetaDataHmacKey, for variable integrity check via HMAC algorithm;
 - VariableEncryptionKey, for variable encryption/decryption.
 
-```mermaid
-graph LR
-
-    VariableKeyLib.GetVariableKey -. "HKDF_Expand(SHA256, VariableKey, 'HMAC_KEY')" .-> MetaDataHmacKey --> Integrity
-
-    VariableKeyLib.GetVariableKey -. "HKDF_Expand(SHA256, VariableKey, Name||':'||Guid||':'||Attr||'VAR_ENC_KEY')" .-> VariableEncryptionKey --> Confidentiality
-
-```
+![alternative text](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/jwang36/edk2-staging/ProtectedVariable/libs/KeyDerivation.puml)
 
 Edk2 provides an instance of [EncryptionVariableLib](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/EncryptionVariableLib), which uses AES-CBC algorithm to encrypt/decrypt variable data. A null version [EncryptionVariableLib](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/EncryptionVariableLibNull) can be used to disable the encryption/decryption functionality. This is for those who just want integrity check for variables.
 
