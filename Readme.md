@@ -59,6 +59,7 @@ classDiagram
     ProtectedVariableLib ..> VariableKeyLib
 
 ```
+![alternative text](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/jwang36/edk2-staging/ProtectedVariable/libs/LibClass.puml)
 
 [RpmcLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/RpmcLib.h) and [VariableKeyLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/VariableKeyLib.h) rely on platform to provide related functionalities and then should be instantiated by platform. Edk2 only provides null version of instances ([RpmcLibNull](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/RpmcLibNull) and [VariableKeyLib](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/VariableKeyLibNull)) for build purpose. Don't use them in real product.
 
@@ -242,5 +243,3 @@ sequenceDiagram
     - SecurityPkg/Library/EncryptionVariableLib/EncryptionVariableLib.inf
   - Disable:
     - SecurityPkg/Library/EncryptionVariableLibNull/EncryptionVariableLibNull.inf
-
-![alternative text](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/fuhrmanator/course-activity-planner/master/ooad/RelativeDatesCourses.puml)
