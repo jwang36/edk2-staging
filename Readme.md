@@ -242,3 +242,5 @@ sequenceDiagram
     - SecurityPkg/Library/EncryptionVariableLib/EncryptionVariableLib.inf
   - Disable:
     - SecurityPkg/Library/EncryptionVariableLibNull/EncryptionVariableLibNull.inf
+
+![alternative text](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://github.com/fuhrmanator/course-activity-planner/blob/master/ooad/RelativeDatesCourses.puml)
