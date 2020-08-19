@@ -504,6 +504,7 @@ VariableServiceInitialize (
   ContextIn.GetNextVariableInfo = GetNextVariableInfo;
   ContextIn.IsUserVariable      = IsUserVariable;
   ContextIn.UpdateVariableStore = VariableExLibUpdateNvVariable;
+  ContextIn.UpdateVariable      = VariableExLibUpdateVariable;
 
   ContextIn.MaxVariableSize     = (UINT32)GetMaxVariableSize ();
   ContextIn.VariableServiceUser = FromSmmModule;

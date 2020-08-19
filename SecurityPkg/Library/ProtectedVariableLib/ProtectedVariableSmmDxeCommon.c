@@ -179,10 +179,10 @@ CreateDummyVariable (
 
   @param[in]      ContextIn             Pointer to context provided by variable services.
   @param[in,out]  Global                Pointer to global configuration data.
-  @param[in,out]  VerifiedVariables     Pointer to verified copy of protected variables.
-  @param[in,out]  VerifiedVariableSize  Size of buffer VerifiedVariables.
-  @param[in,out]  OffsetTable           Pointer to a offset table.
-  @param[in,out]  TableCount            Number of offset value in OffsetTable.
+  @param[in]      VerifiedVariables     Pointer to verified copy of protected variables.
+  @param[in]      VerifiedVariableSize  Size of buffer VerifiedVariables.
+  @param[in]      OffsetTable           Pointer to a offset table.
+  @param[in]      TableCount            Number of offset value in OffsetTable.
 
   @retval   Non-NULL  NV variable storage was re-constructed from the copy in HOB.
   @retval   NULL      Out of resource or not enough information to do re-construction.
@@ -191,7 +191,7 @@ CreateDummyVariable (
 EFI_STATUS
 RestoreVariableStoreFv (
   IN  PROTECTED_VARIABLE_CONTEXT_IN   *ContextIn,
-  IN  PROTECTED_VARIABLE_GLOBAL       *Global,
+  IN  OUT PROTECTED_VARIABLE_GLOBAL   *Global,
   IN  EFI_FIRMWARE_VOLUME_HEADER      *VerifiedVariables,
   IN  UINT32                          VerifiedVariableSize,
   IN  UINT32                          *OffsetTable,
@@ -421,25 +421,41 @@ ProtectedVariableLibWriteInit (
   )
 {
   EFI_STATUS                      Status;
+  PROTECTED_VARIABLE_GLOBAL       *Global;
+  PROTECTED_VARIABLE_CONTEXT_IN   *ContextIn;
+  PROTECTED_VARIABLE_INFO         VarInfo;
+
+  Status = GetProtectedVariableContext (&ContextIn, &Global);
+  ASSERT_EFI_ERROR (Status);
 
   //
   // Write-init should be done only once in current boot.
   //
-  if (mProtectedVariableGlobal.Flags.WriteInit) {
+  if (Global->Flags.WriteInit) {
     return EFI_SUCCESS;
   }
 
-  if (!mProtectedVariableGlobal.Flags.WriteReady) {
+  if (!Global->Flags.WriteReady) {
     return EFI_NOT_READY;
   }
 
   //
-  // Extra increasement of RPMC for mitigating replay attack.
+  // Refresh MetaDataHmacVar with RPMC+1 in each boot before any variable
+  // update, by deleteing(attr == 0 && datasize == 0) the old one, if any.
   //
-  Status = IncrementMonotonicCounter ();
-  if (EFI_ERROR (Status)) {
-    ASSERT_EFI_ERROR (Status);
-    return Status;
+  if (Global->UnprotectedVariables[IndexHmacAdded] != 0) {
+    ZeroMem (&VarInfo, sizeof (PROTECTED_VARIABLE_INFO));
+
+    VarInfo.Flags.Auth          = Global->Flags.Auth;
+    VarInfo.Header.VariableName = METADATA_HMAC_KEY_NAME;
+    VarInfo.Header.NameSize     = METADATA_HMAC_KEY_NAME_SIZE;
+    VarInfo.Header.VendorGuid   = &METADATA_HMAC_VARIABLE_GUID;
+
+    Status = ContextIn->UpdateVariable (&VarInfo.Header);
+    if (EFI_ERROR (Status)) {
+      ASSERT_EFI_ERROR (Status);
+      return Status;
+    }
   }
 
   mProtectedVariableGlobal.Flags.WriteInit = TRUE;
@@ -456,8 +472,8 @@ ProtectedVariableLibWriteInit (
 
   A special variable, called "MetaDataHmacVar", will always be updated along
   with variable being updated to reflect the changes (HMAC value) of all
-  protected valid variables. The only exceptions, currently, are variable
-  "MetaDataHmacVar" itself and variable "VarErrorLog".
+  protected valid variables. The only exceptions, currently, is variable
+  variable "VarErrorLog".
 
   The buffer passed by NewVariable must be double of maximum variable size,
   which allows to pass the "MetaDataHmacVar" back to caller along with encrypted
@@ -524,7 +540,7 @@ ProtectedVariableLibUpdate (
   Status = GetVariableStoreCache (Global, NULL, &VarStore, NULL, NULL);
   ASSERT_EFI_ERROR (Status);
 
-  if (!Global->Flags.WriteReady) {
+  if (!Global->Flags.WriteReady || !Global->Flags.WriteInit) {
     return EFI_NOT_READY;
   }
 
@@ -591,11 +607,16 @@ ProtectedVariableLibUpdate (
   }
 
   //
-  // MetaDataHmacVariable should be managed only by this library. It's not
-  // supposed to be updated by external users of variable service.
+  // MetaDataHmacVar should be managed only by this library. It's not
+  // supposed to be updated by external users of variable service. The only
+  // exception is that deleting it (not really delete but refresh the HMAC
+  // value against RPMC+1) is allowed before WriteInit, as a way to always
+  // increment RPMC once in current boot before any variable updates.
   //
   if (UnprotectedVarIndex <= IndexHmacAdded) {
-    return EFI_ACCESS_DENIED;
+    if (NewVarInfo.Address != NULL || Global->Flags.WriteInit) {
+      return EFI_ACCESS_DENIED;
+    }
   }
 
   //
@@ -613,16 +634,18 @@ ProtectedVariableLibUpdate (
     CurrVarInfo.Address->State &= VAR_DELETED;
   }
 
-  //
-  // No further operations for known unprotected variables.
-  //
   if (UnprotectedVarIndex < UnprotectedVarIndexMax) {
     //
     // Updating a variable will always change its offset in storage. But it's
     // unknown at this point. Setting it to 0 to avoid misjudgment.
     //
     Global->UnprotectedVariables[UnprotectedVarIndex] = 0;
-    return EFI_SUCCESS;
+    //
+    // No further operations for L"VarErrorFlag".
+    //
+    if (UnprotectedVarIndex == IndexErrorFlag) {
+      return EFI_SUCCESS;
+    }
   }
 
   Status = UpdateVariableInternal (ContextIn, Global, &NewVarInfo, &NewHmacVarInfo);
@@ -741,7 +764,7 @@ ProtectedVariableLibWriteFinal (
   }
 
   //
-  // Update offset new MetaDataHmacVariable
+  // Update offset of new MetaDataHmacVariable
   //
   Global->UnprotectedVariables[IndexHmacAdded] = (UINT32)Offset;
   Global->UnprotectedVariables[IndexHmacInDel] = 0;
@@ -992,7 +1015,8 @@ ProtectedVariableLibReclaim (
     }
 
     if (((*NewVariable)->Attributes & EFI_VARIABLE_HARDWARE_ERROR_RECORD)
-        == EFI_VARIABLE_HARDWARE_ERROR_RECORD) {
+        == EFI_VARIABLE_HARDWARE_ERROR_RECORD)
+    {
       *HwErrVariableTotalSize += NewVariableSize;
     } else {
       *CommonVariableTotalSize += NewVariableSize;

@@ -46,13 +46,20 @@ VariableWriteProtocolCallback (
   IN  VOID                     *Context
   )
 {
+  EFI_STATUS      Status;
+
   //
   // Fix incorrect state of MetaDataHmacVariable before any variable update.
   // This has to be done here due to the fact that this operation needs to
   // update NV storage but the FVB and FTW protocol might not be ready during
   // ProtectedVariableLibInitialize().
   //
-  (VOID)FixupHmacVariable ();
+  Status = FixupHmacVariable ();
+  ASSERT_EFI_ERROR (Status);
+
+  Status = ProtectedVariableLibWriteInit ();
+  ASSERT_EFI_ERROR (Status);
+
   gBS->CloseEvent (Event);
 }
 
@@ -93,6 +100,7 @@ ProtectedVariableLibInitialize (
       || ContextIn->GetVariableInfo == NULL
       || ContextIn->GetNextVariableInfo == NULL
       || ContextIn->UpdateVariableStore == NULL
+      || ContextIn->UpdateVariable == NULL
       || ContextIn->IsUserVariable == NULL)
   {
     ASSERT (ContextIn != NULL);

@@ -237,6 +237,64 @@ UpdateVariableMetadataHmac (
   return TRUE;
 }
 
+EFI_STATUS
+EFIAPI
+GetVariableHmac (
+  IN      VARIABLE_HEADER     *Variable,
+  IN  OUT VARIABLE_SIGNATURE  *VarSig
+  )
+{
+  EFI_STATUS                      Status;
+  VOID                            *Context;
+  PROTECTED_VARIABLE_CONTEXT_IN   *ContextIn;
+  PROTECTED_VARIABLE_GLOBAL       *Global;
+  PROTECTED_VARIABLE_INFO         *VarInfo,
+
+  Status = GetProtectedVariableContext (&ContextIn, &Global);
+  if (EFI_ERROR (Status)) {
+    ASSERT_EFI_ERROR (Status);
+    return Status;
+  }
+
+  VarInfo->Address    = Variable;
+  VarInfo->Flags.Auth = Global->Flags.Auth;
+  VarInfo->CacheIndex = (UINT32)-1;
+  VarInfo->StoreIndex = (UINT32)-1;
+  Status = ContextIn->GetVariableInfo (NULL, &VarInfo);
+  ASSERT_EFI_ERROR (Status);
+
+  //
+  // Don't calc HMAC for unprotected variables. Keep a copy of its data instead.
+  //
+  if (CheckKnownUnprotectedVariable (Global, &VarInfo) < UnprotectedVarIndexMax) {
+    CopyMem (VAR_SIGNATURE(VarSig), VarInfo->Header.Data, VarInfo->Header.DataSize);
+    VarSig->SigSize = VarInfo->Header.DataSize;
+    return EFI_SUCCESS;
+  }
+
+  ASSERT (VarSig->SigSize >= sizeof (Global->MetaDataHmacKey));
+
+  Context = HmacSha256New ();
+  if (Context == NULL) {
+    ASSERT (Context != NULL);
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  if (!HmacSha256SetKey (Context, Global->MetaDataHmacKey, sizeof (Global->MetaDataHmacKey))
+      || !UpdateVariableMetadataHmac (Context, VarInfo)
+      || !HmacSha256Final (Context, VAR_SIGNATURE (VarSig)))
+  {
+    ASSERT (FALSE);
+    Status = EFI_ABORTED;
+  } else {
+    Status = EFI_SUCCESS;
+  }
+
+  HmacSha256Free (Context);
+
+  return Status;;
+}
+
 /**
 
   Retrieve the cached copy of NV variable storage.

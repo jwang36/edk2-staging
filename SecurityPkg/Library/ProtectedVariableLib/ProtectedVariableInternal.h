@@ -83,7 +83,7 @@ typedef enum {
 
 #pragma pack(1)
 
-#define PROTECTED_VARIABLE_CONTEXT_OUT_STRUCT_VERSION 0x01
+#define PROTECTED_VARIABLE_CONTEXT_OUT_STRUCT_VERSION 0x02
 
 typedef struct _PROTECTED_VARIABLE_GLOBAL {
   UINT32                                StructVersion;
@@ -94,29 +94,28 @@ typedef struct _PROTECTED_VARIABLE_GLOBAL {
   //
   UINT8                                 RootKey[VARIABLE_KEY_SIZE];
   UINT8                                 MetaDataHmacKey[VARIABLE_KEY_SIZE];
-  UINT32                                UnprotectedVariables[UnprotectedVarIndexMax];
-  EFI_PHYSICAL_ADDRESS                  ProtectedVariableCache;
-  UINT32                                ProtectedVariableCacheSize;
+  UINT32                                VariableNumber;
+  UINT32                                VariableCacheSize;
+  EFI_PHYSICAL_ADDRESS                  VariableCache;
+  EFI_PHYSICAL_ADDRESS                  VariableSignatures;
+  EFI_PHYSICAL_ADDRESS                  UnprotectedVariables[UnprotectedVarIndexMax];
 
   struct {
-    BOOLEAN                             Auth;
-    BOOLEAN                             WriteInit;
-    BOOLEAN                             WriteReady;
-    BOOLEAN                             Reserved;
+    BOOLEAN                               Auth;
+    BOOLEAN                               WriteInit;
+    BOOLEAN                               WriteReady;
+    BOOLEAN                               Reserved;
   }                                     Flags;
-
-  UINT32                                TableCount;
-  union {
-    EFI_PHYSICAL_ADDRESS                Address;
-    //
-    // Indice (offset to base of variable fv) of all valid variables. It's a
-    // pointer to an array of UINT32[TableCount]. (PEI only)
-    //
-    UINT32                              *OffsetList;
-  }                                     Table;
 } PROTECTED_VARIABLE_GLOBAL;
 
 #pragma pack()
+
+typedef
+INTN
+(EFIAPI *SORT_METHOD) (
+  IN VARIABLE_SIGNATURE *Variable1,
+  IN VARIABLE_SIGNATURE *Variable2
+  );
 
 /**
 
@@ -131,13 +130,12 @@ typedef struct _PROTECTED_VARIABLE_GLOBAL {
   @retval FALSE     Failed to generate HMAC key from given root key.
 
 **/
-BOOLEAN
-GenerateMetaDataHmacKey (
-  IN   CONST UINT8  *RootKey,
-  IN   UINTN        RootKeySize,
-  OUT  UINT8        *HmacKey,
-  IN   UINTN        HmacKeySize
-  );
+  BOOLEAN
+  GenerateMetaDataHmacKey (
+    IN CONST UINT8 *RootKey,
+    IN UINTN        RootKeySize,
+    OUT UINT8 *HmacKey,
+    IN UINTN   HmacKeySize);
 
 /**
 

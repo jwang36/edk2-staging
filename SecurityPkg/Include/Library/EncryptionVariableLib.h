@@ -21,7 +21,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 typedef struct {
   AUTH_VARIABLE_INFO  Header;
   VARIABLE_HEADER     *Address;
-  UINT32              Offset;
+  UINT32              StoreIndex;
+  UINT32              CacheIndex;
   VOID                *PlainData;
   UINT32              PlainDataSize;
   VOID                *CipherData;

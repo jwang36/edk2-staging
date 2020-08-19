@@ -14,7 +14,7 @@ From Microsoft Windows 10 [1903](https://go.microsoft.com/fwlink/?linkid=2086856
 
 The main functionalities of integrity and confidentiality are provided through [ProtectedVariableLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/ProtectedVariableLib.h) library, which employs [EncryptionVariableLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/EncryptionVariableLib.h) to do encryption/description works, [RpmcLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/RpmcLib.h) to operate Replay Protected Monotonic Counter for replay protection, and [VariableKeyLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/VariableKeyLib.h) to access hardware generated root key for integrity check and data encryption for variables.
 
-![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/jwang36/edk2-staging/ProtectedVariable/libs/LibClass.puml)
+![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/tianocore/edk2-staging/ProtectedVariable/libs/LibClass.puml)
 
 [RpmcLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/RpmcLib.h) and [VariableKeyLib](https://github.com/tianocore/edk2-staging/blob/ProtectedVariable/libs/SecurityPkg/Include/Library/VariableKeyLib.h) rely on platform to provide related functionalities and then should be instantiated by platform. Edk2 only provides null version of instances ([RpmcLibNull](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/RpmcLibNull) and [VariableKeyLib](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/VariableKeyLibNull)) for build purpose. Don't use them in real product.
 
@@ -23,7 +23,7 @@ ProtectedVariableLib will use the key got from VariableKeyLib to derive two keys
 - MetaDataHmacKey, for variable integrity check via HMAC algorithm;
 - VariableEncryptionKey, for variable encryption/decryption.
 
-![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/jwang36/edk2-staging/ProtectedVariable/libs/KeyDerivation.puml)
+![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/tianocore/edk2-staging/ProtectedVariable/libs/KeyDerivation.puml)
 
 Edk2 provides an instance of [EncryptionVariableLib](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/EncryptionVariableLib), which uses AES-CBC algorithm to encrypt/decrypt variable data. A null version [EncryptionVariableLib](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/EncryptionVariableLibNull) can be used to disable the encryption/decryption functionality. This is for those who just want integrity check for variables.
 
@@ -39,15 +39,16 @@ Edk2 provides four instances of ProtectedVariableLib to support variable service
   - Read decrypted variable data from cache
   - Write encrypted variable data to flash
   - Refresh HMAC and update MetaDataHmacVar variable with its value, upon updating any other variable
-  - Advance RPMC before the first variable update operation
+  - Advance RPMC once in each boot
   - Advance RPMC after any variable update operation
 - [SmmRuntimeProtectedVariableLib](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/ProtectedVariableLib), for RuntimeService variable interfaces
-  - Read decrypted variable data from cache
-  - Pass variable write operation onto SMM
+  - Read variable data from cache, if it has been decrypted
+  - Send request of variable decryption operation to SMM
+  - Send request of variable write operation to SMM
 - [DxeProtectedVariableLib](https://github.com/tianocore/edk2-staging/tree/ProtectedVariable/libs/SecurityPkg/Library/ProtectedVariableLib), for emulation environment only
   - Similar to SmmProtectionVariableLib
 
-![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/jwang36/edk2-staging/ProtectedVariable/libs/ProtectedVariableLib.puml)
+![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/tianocore/edk2-staging/ProtectedVariable/libs/ProtectedVariableLib.puml)
 
 There're two special variables which must not be encrypted or taken into integrity check:
 - L"MetaDataHmacVar“ (gEdkiiMetaDataHmacVariableGuid)
@@ -59,15 +60,15 @@ There're two special variables which must not be encrypted or taken into integri
 
 - PEI variable services initialization flow
 
-![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/jwang36/edk2-staging/ProtectedVariable/libs/Init.puml)
+![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/tianocore/edk2-staging/ProtectedVariable/libs/Init.puml)
 
 - GetVariable flow
 
-![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/jwang36/edk2-staging/ProtectedVariable/libs/GetVariable.puml)
+![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/tianocore/edk2-staging/ProtectedVariable/libs/GetVariable.puml)
 
 - SetVariable flow
 
-![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/jwang36/edk2-staging/ProtectedVariable/libs/SetVariable.puml)
+![alternative text](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/tianocore/edk2-staging/ProtectedVariable/libs/SetVariable.puml)
 
 ## Platform Integration Considerations
 

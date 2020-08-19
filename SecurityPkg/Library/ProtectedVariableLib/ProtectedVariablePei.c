@@ -36,105 +36,161 @@ GetProtectedVariableContext (
   return GetProtectedVariableContextFromHob (ContextIn, Global);
 }
 
-/**
-
-  Check and record the position of known unprotected variables for convenient
-  use later, and mark those in delete-transition state to be deleted if there's
-  a valid (VAR_ADDED) copy elsewhere.
-
-  @param[in]      ContextIn       Pointer to context provided by variable services.
-  @param[in,out]  Global          Pointer to global configuration data.
-  @param[in,out]  VariableStore   Pointer to cached copy of NV variable storage.
-
-**/
-VOID
-FixupVariableState (
-  IN      PROTECTED_VARIABLE_CONTEXT_IN       *ContextIn,
-  IN  OUT PROTECTED_VARIABLE_GLOBAL           *Global
+INTN
+EFIAPI
+CompareVariable (
+  IN  VARIABLE_SIGNATURE      *Variable1,
+  IN  VARIABLE_SIGNATURE      *Variable2
   )
 {
-  EFI_STATUS                    Status;
-  PROTECTED_VARIABLE_INFO       VarInfo;
-  PROTECTED_VARIABLE_INFO       VarInDelInfo;
-  UINT32                        Index;
-  UINT32                        VarIndex;
-  VARIABLE_STORE_HEADER         *VariableStore;
-  VARIABLE_HEADER               *VariableStart;
-  VARIABLE_HEADER               *VariableEnd;
+  CHAR16            *Name1;
+  CHAR16            *Name2;
+  INTN              Result;
 
+  Name1   = VAR_NAME (Variable1);
+  Name2   = VAR_NAME (Variable2);
+  Result  = StrnCmp (
+              Name1,
+              Name2,
+              MIN (Variable1->NameSize, Variable2->NameSize) / sizeof (CHAR16)
+              );
+  if (Result == 0) {
+    //
+    // The variable name is the same. Compare the GUID as string.
+    //
+    Result = StrnCmp (
+              (CHAR16 *)&Variable1->VendorGuid,
+              (CHAR16 *)&Variable2->VendorGuid,
+              sizeof (EFI_GUID) / sizeof (CHAR16)
+              );
+  }
 
-  ZeroMem (Global->UnprotectedVariables, sizeof (Global->UnprotectedVariables));
+  return Result;
+}
 
-  GetVariableStoreCache (Global, NULL, &VariableStore, &VariableStart, &VariableEnd);
-  VarInDelInfo.Address    = NULL;
-  VarInDelInfo.Offset     = 0;
-  VarInDelInfo.Flags.Auth = Global->Flags.Auth;
-  while (TRUE) {
-    Status = ContextIn->GetNextVariableInfo (VariableStore, VariableStart, VariableEnd, &VarInDelInfo);
-    if (EFI_ERROR (Status)) {
+VOID
+MoveNodeBackward (
+  IN  OUT VARIABLE_SIGNATURE  *Node,
+  IN      SORT_METHOD         SortMethod
+  )
+{
+  VARIABLE_SIGNATURE  *Curr;
+  VARIABLE_SIGNATURE  *Prev;
+  INTN                Result;
+
+  Curr = Node;
+  while (Curr != NULL) {
+    Prev = PREV_SIGNATURE (Curr);
+    if (Prev == NULL) {
+      Result = -1;
+    } else {
+      Result = SortMethod (Prev, Node);
+    }
+
+    if (Result <= 0) {
+      if (Curr != Node) {
+        //
+        // Remove Node first
+        //
+        if (Node->Prev != 0) {
+          PREV_SIGNATURE (Node)->Next = Node->Next;
+        }
+
+        if (Node->Next != NULL) {
+          NEXT_SIGNATURE (Node)->Prev = Node->Prev;
+        }
+
+        //
+        // Insert Node before Curr.
+        //
+        Node->Prev = Curr->Prev;
+        Node->Next = (EFI_PHYSICAL_ADDRESS) (UINTN)Curr;
+
+        if (Curr->Prev != NULL) {
+          PREV_SIGNATURE (Curr)->Next = (EFI_PHYSICAL_ADDRESS) (UINTN)Node;
+        }
+        Curr->Prev = (EFI_PHYSICAL_ADDRESS) (UINTN)Node;
+      }
+
+      //
+      // If there're two identical variables in storage, one of them must be
+      // "in-delete-transition" state. Mark it as "deleted" anyway.
+      //
+      if (Result == 0) {
+        if (Curr->State == (VAR_ADDED & VAR_IN_DELETED_TRANSITION)) {
+          Curr->State &= VAR_DELETED;
+        }
+
+        if (Prev->State == (VAR_ADDED & VAR_IN_DELETED_TRANSITION)) {
+          Prev->State &= VAR_DELETED;
+        }
+      }
+
       break;
     }
 
-    if (VarInDelInfo.Address->State != VAR_ADDED
-        && VarInDelInfo.Address->State != (VAR_ADDED & VAR_IN_DELETED_TRANSITION)) {
-      continue;
-    }
+    Curr = Prev;
+  }
+}
+
+VOID
+SortVariableSignatureList (
+  IN      PROTECTED_VARIABLE_CONTEXT_IN *ContextIn,
+  IN  OUT PROTECTED_VARIABLE_GLOBAL     *Global,
+  IN      SORT_METHOD                   SortMethod
+  )
+{
+  VARIABLE_SIGNATURE          *Curr;
+  VARIABLE_SIGNATURE          *Next;
+  VARIABLE_IDENTIFIER         VarId;
+  UNPROTECTED_VARIABLE_INDEX  VarIndex;
+  UINTN                        Index;
+
+  ZeroMem (Global->UnprotectedVariables, sizeof (Global->UnprotectedVariables));
+
+  Curr = (VARIABLE_SIGNATURE *)(UINTN)Global->VariableSignatures;
+  while (Curr != NULL) {
     //
-    // Check known unprotected variables.
+    // Check known unprotected variables first.
     //
+    VarId.VariableName  = VAR_NAME (Curr);
+    VarId.VendorGuid    = &Curr->VendorGuid;
     for (Index = 0; Index < UnprotectedVarIndexMax; ++Index) {
       if (Global->UnprotectedVariables[Index] == 0
-          && IS_VARIABLE (&VarInDelInfo.Header,
+          && IS_VARIABLE (&VarId,
                           mUnprotectedVariables[Index].VariableName,
-                          mUnprotectedVariables[Index].VendorGuid))
-      {
+                          mUnprotectedVariables[Index].VendorGuid)) {
         if (Index <= IndexHmacAdded) {
-          if (VarInDelInfo.Address->State == (VAR_ADDED & VAR_IN_DELETED_TRANSITION)) {
+          if (Curr->State == (VAR_ADDED & VAR_IN_DELETED_TRANSITION)) {
             VarIndex = IndexHmacInDel;
-          } else if (VarInDelInfo.Address->State == VAR_ADDED) {
+          } else if (Curr->State == VAR_ADDED) {
             VarIndex = IndexHmacAdded;
           }
         } else {
           VarIndex = Index;
         }
 
-        Global->UnprotectedVariables[VarIndex] = VarInDelInfo.Offset;
+        Global->UnprotectedVariables[VarIndex] = (EFI_PHYSICAL_ADDRESS)(UINTN)Curr;
         break;
       }
     }
 
     //
-    // Only take care of protected variable in delete transition state.
+    // Re-order current variable.
     //
-    if (Index < UnprotectedVarIndexMax
-        || VarInDelInfo.Address->State != (VAR_ADDED & VAR_IN_DELETED_TRANSITION))
-    {
-      continue;
-    }
-
-    VarInfo.Address     = NULL;
-    VarInfo.Offset      = 0;
-    VarInfo.Flags.Auth  = Global->Flags.Auth;
-    while (TRUE) {
-      Status = ContextIn->GetNextVariableInfo (VariableStore, VariableStart, VariableEnd, &VarInfo);
-      if (EFI_ERROR (Status) || VarInfo.Address == NULL) {
-        break;
-      }
-
-      if (VarInfo.Address->State == VAR_ADDED
-          && IS_VARIABLE (&VarInDelInfo.Header,
-                          VarInfo.Header.VariableName,
-                          VarInfo.Header.VendorGuid))
-      {
-        //
-        // There's a same variable with state VAR_ADDED there.
-        // Remove it completely.
-        //
-        VarInDelInfo.Address->State &= VAR_DELETED;
-        break;
-      }
-    }
+    Next = NEXT_SIGNATURE (Curr);
+    MoveNodeBackward (Curr, SortMethod);
+    Curr = Next;
   }
+
+  //
+  // Find the new head of the linked list re-ordered.
+  //
+  Curr = (VARIABLE_SIGNATURE *)(UINTN)Global->VariableSignatures;
+  while (Curr->Prev != 0) {
+    Curr = PREV_SIGNATURE (Curr);
+  }
+  Global->VariableSignatures = (EFI_PHYSICAL_ADDRESS)(UINTN)Curr;
 }
 
 /**
@@ -160,6 +216,7 @@ VerifyMetaDataHmac (
   VARIABLE_STORE_HEADER               *VariableStore;
   VARIABLE_HEADER                     *VariableStart;
   VARIABLE_HEADER                     *VariableEnd;
+  VARIABLE_SIGNATURE                  *VariableSig;
   PROTECTED_VARIABLE_INFO             VariableInfo;
   UINT32                              Counter;
   VOID                                *Hmac;
@@ -169,6 +226,7 @@ VerifyMetaDataHmac (
   UINT8                               *UnprotectedVarData[UnprotectedVarIndexMax];
   VARIABLE_HEADER                     *UnprotectedVar[UnprotectedVarIndexMax];
   UINT32                              Index;
+  BOOLEAN                             IsUnprotectedVar;
 
   HmacPlus  = NULL;
   Hmac      = HmacSha256New ();
@@ -197,35 +255,34 @@ VerifyMetaDataHmac (
 
   GetVariableStoreCache (Global, NULL, &VariableStore, &VariableStart, &VariableEnd);
   VariableInfo.Address    = NULL;
-  VariableInfo.Offset     = 0;
   VariableInfo.Flags.Auth = Global->Flags.Auth;
-  while (TRUE) {
-    Status = ContextIn->GetNextVariableInfo (VariableStore, VariableStart,
-                                             VariableEnd, &VariableInfo);
-    if (EFI_ERROR (Status)) {
-      break;
+  VariableSig             = (VARIABLE_SIGNATURE *)(UINTN)Global->VariableSignatures;
+  while (VariableSig != NULL) {
+    if (VariableSig->State != VAR_ADDED
+        && VariableSig->State != (VAR_ADDED & VAR_IN_DELETED_TRANSITION)) {
+      continue;
     }
 
-    if (IsValidProtectedVariable (Global, &VariableInfo)) {
-      VariableInfo.CipherData     = VariableInfo.Header.Data;
-      VariableInfo.CipherDataSize = (UINT32)VariableInfo.Header.DataSize;
-      if (!UpdateVariableMetadataHmac (Hmac, &VariableInfo)) {
+    //
+    // Check known unprotected variables.
+    //
+    IsUnprotectedVar = FALSE;
+    for (Index = 0; Index < UnprotectedVarIndexMax; ++Index) {
+      if (Global->UnprotectedVariables[Index] == VariableSig) {
+        IsUnprotectedVar = TRUE;
+        break;
+      }
+    }
+
+    if (!IsUnprotectedVar) {
+      if (!Status = HmacSha256Update (Hmac, VAR_SIG_DATA (VariableSig), VariableSig->SigSize)) {
         ASSERT (FALSE);
         Status = EFI_ABORTED;
         goto Done;
       }
-    } else {
-      //
-      // Check known unprotected variables.
-      //
-      for (Index = 0; Index < UnprotectedVarIndexMax; ++Index) {
-        if (Global->UnprotectedVariables[Index] == VariableInfo.Offset) {
-          UnprotectedVar[Index]     = VariableInfo.Address;
-          UnprotectedVarData[Index] = VariableInfo.Header.Data;
-          break;
-        }
-      }
     }
+
+    VariableSig = NEXT_SIGNATURE (VariableSig);
   }
 
   //
@@ -429,7 +486,11 @@ ProtectedVariableLibInitialize (
   UINT32                              NvVarCacheSize;
   UINT32                              VarNumber;
   PROTECTED_VARIABLE_GLOBAL           *Global;
+  VARIABLE_SIGNATURE                  *SigBuffer;
+  VARIABLE_SIGNATURE                  *Signature;
+  UINT32                              SigBufferSize;
   UINTN                               Index;
+  BOOLEAN                             AuthFlag;
 
   if (ContextIn == NULL
       || ContextIn->InitVariableStore == NULL
@@ -442,10 +503,20 @@ ProtectedVariableLibInitialize (
   }
 
   //
-  // Evaluate variable store size.
+  // Walk all variables to get info for future operations.
   //
-  NvVarCacheSize = 0;
-  Status = ContextIn->InitVariableStore (0, &NvVarCacheSize, NULL, &VarNumber, NULL);
+  NvVarCacheSize  = 0;
+  SigBufferSize   = 0;
+  Status          = ContextIn->InitVariableStore (
+                                NULL,
+                                NULL,
+                                NULL,
+                                &SigBufferSize,
+                                METADATA_HMAC_SIZE,
+                                NULL,
+                                &VarNumber,
+                                &AuthFlag
+                                );
   if (Status != EFI_BUFFER_TOO_SMALL) {
     ASSERT_EFI_ERROR (Status);
     return EFI_VOLUME_CORRUPTED;
@@ -456,19 +527,20 @@ ProtectedVariableLibInitialize (
   //
   //      ContextIn
   //      Global
-  //      Variable Offset Table
-  //      Variable Cache
+  //      Variable Signature List
+  //
+  // To save precious NEM space of processor, variable cache will not be
+  // allocated at this point until physical memory is ready for use.
   //
   HobDataSize = ContextIn->StructSize
                 + sizeof (PROTECTED_VARIABLE_GLOBAL)
-                + VarNumber * sizeof (UINT32)
-                + 16  /* Make sure of the alignment requirement of variables */
-                + NvVarCacheSize;
+                + SigBufferSize;
   GlobalHobData = BuildGuidHob (
-                     &gEdkiiProtectedVariableGlobalGuid,
-                     HobDataSize
-                     );
+                    &gEdkiiProtectedVariableGlobalGuid,
+                    HobDataSize
+                    );
   if (GlobalHobData == NULL) {
+    ASSERT (HobDataSize < (1 << sizeof (((EFI_HOB_GENERIC_HEADER *)0)->HobLength)));
     ASSERT (GlobalHobData != NULL);
     return EFI_OUT_OF_RESOURCES;
   }
@@ -483,19 +555,16 @@ ProtectedVariableLibInitialize (
                         ((UINTN)ContextIn + ContextIn->StructSize);
 
   Global->StructVersion = PROTECTED_VARIABLE_CONTEXT_OUT_STRUCT_VERSION;
-  Global->StructSize    = sizeof (PROTECTED_VARIABLE_GLOBAL);
+  Global->StructSize    = HobDataSize - ContextIn->StructSize;
 
-  //
-  // Last part is for caching protected variables, if any.
-  //
-  Global->Table.Address               = (EFI_PHYSICAL_ADDRESS)((UINTN)Global
-                                                               + Global->StructSize);
-  Global->TableCount                  = VarNumber;
-  Global->ProtectedVariableCache      = Global->Table.Address + VarNumber * sizeof (UINT32);
-  Global->ProtectedVariableCache      = (EFI_PHYSICAL_ADDRESS)
-                                        ALIGN_VALUE (Global->ProtectedVariableCache, 16);
-  Global->ProtectedVariableCacheSize  = NvVarCacheSize;
-  Global->Flags.WriteInit             = FALSE;
+  Global->VariableCache       = 0;
+  Global->VariableCacheSize   = 0;
+  Global->VariableNumber      = VarNumber;
+  Global->VariableSignatures  = 0;
+
+  Global->Flags.Auth        = AuthFlag;
+  Global->Flags.WriteInit   = FALSE;
+  Global->Flags.WriteReady  = FALSE;
 
   //
   // Get root key and generate HMAC key.
@@ -524,25 +593,31 @@ ProtectedVariableLibInitialize (
   }
 
   //
-  // Cache all valid NV variables.
+  // Re-walk all NV variables and build signature list.
   //
   Status = ContextIn->InitVariableStore (
-                        Global->ProtectedVariableCache,
-                        &NvVarCacheSize,
-                        Global->Table.OffsetList,
-                        &Global->TableCount,
-                        &Global->Flags.Auth
+                        NULL,
+                        NULL,
+                        SigBuffer,
+                        &SigBufferSize,
+                        METADATA_HMAC_SIZE,
+                        GetVariableHmac,
+                        &VarNumber,
+                        &AuthFlag
                         );
   if (EFI_ERROR (Status)) {
     ASSERT_EFI_ERROR (Status);
     return Status;
   }
-  ASSERT (Global->TableCount == VarNumber);
+  ASSERT (Global->VariableNumber == VarNumber);
 
   //
-  // Fixup variable store and variables in it.
+  // Sort the variables in order to calc final HMAC stored in L"MetaDataHmacVar".
+  // This is to avoid the interference from inconsistent information about
+  // variables, like location. The only things which should be taken care is
+  // the content and state of them.
   //
-  FixupVariableState (ContextIn, Global);
+  SortVariableSignatureList (ContextIn, Global, CompareVariable);
 
   //
   // Fixup number of valid protected variables (i.e. exclude unprotected ones)
