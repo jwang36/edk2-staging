@@ -639,26 +639,19 @@ FindVariableInRuntimeCache (
       //
       // Get data size
       //
-      TempDataSize = DataSizeOfVariable (RtPtrTrack.CurrPtr, mVariableAuthFormat);
-      ASSERT (TempDataSize != 0);
+      if (!RtPtrTrack.Volatile) {
+        //
+        // Currently only non-volatile variable needs protection.
+        //
+        Status = ProtectedVariableLibGetData (RtPtrTrack.CurrPtr, Data, (UINT32 *)DataSize, mVariableAuthFormat);
+      }
 
-      if (*DataSize >= TempDataSize) {
-        if (Data == NULL) {
-          Status = EFI_INVALID_PARAMETER;
-          goto Done;
-        }
+      if (RtPtrTrack.Volatile || Status == EFI_UNSUPPORTED) {
+        Status = GetVariableData (RtPtrTrack.CurrPtr, Data, (UINT32 *)DataSize, mVariableAuthFormat);
+      }
 
-        CopyMem (Data, GetVariableDataPtr (RtPtrTrack.CurrPtr, mVariableAuthFormat), TempDataSize);
-        *DataSize = TempDataSize;
-
-        UpdateVariableInfo (VariableName, VendorGuid, RtPtrTrack.Volatile, TRUE, FALSE, FALSE, TRUE, &mVariableInfo);
-
-        Status = EFI_SUCCESS;
-        goto Done;
-      } else {
-        *DataSize = TempDataSize;
-        Status = EFI_BUFFER_TOO_SMALL;
-        goto Done;
+      if (!EFI_ERROR (Status)) {
+        UpdateVariableInfo (VariableName, VendorGuid, Variable.Volatile, TRUE, FALSE, FALSE, FALSE, &gVariableInfo);
       }
     }
   }

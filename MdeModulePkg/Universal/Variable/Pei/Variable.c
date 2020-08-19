@@ -63,6 +63,7 @@ PeimInitializeVariableServices (
   ContextIn.FindVariableSmm     = NULL;
   ContextIn.UpdateVariableStore = NULL;
   ContextIn.IsUserVariable      = NULL;
+  ContextIn.UpdateVariable      = NULL;
 
   Status = ProtectedVariableLibInitialize (&ContextIn);
   if (EFI_ERROR (Status) && Status != EFI_UNSUPPORTED) {
@@ -349,9 +350,10 @@ PeiGetVariable (
       }
 
       GetVariableNameOrData (&StoreInfo, GetVariableDataPtr (Variable.CurrPtr, VariableHeader, StoreInfo.AuthFlag), VarDataSize, Data);
-    Status = EFI_SUCCESS;
-  } else {
-    Status = EFI_BUFFER_TOO_SMALL;
+      Status = EFI_SUCCESS;
+    } else {
+      Status = EFI_BUFFER_TOO_SMALL;
+    }
   }
 
   if (Attributes != NULL) {

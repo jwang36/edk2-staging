@@ -491,37 +491,6 @@ InitializeVariableQuota (
 }
 
 /**
-  EFI_STATUS            DoneStatus;
-  DoneStatus = EFI_SUCCESS;
-  if (IsVolatile || mVariableModuleGlobal->VariableGlobal.EmuNvMode) {
-    DoneStatus = SynchronizeRuntimeVariableCache (
-                   &mVariableModuleGlobal->VariableGlobal.VariableRuntimeCacheContext.VariableRuntimeVolatileCache,
-                   0,
-                   VariableStoreHeader->Size
-                   );
-    ASSERT_EFI_ERROR (DoneStatus);
-    FreePool (ValidBuffer);
-  } else {
-    //
-    // For NV variable reclaim, we use mNvVariableCache as the buffer, so copy the data back.
-    //
-    CopyMem (mNvVariableCache, (UINT8 *) (UINTN) VariableBase, VariableStoreHeader->Size);
-    DoneStatus = SynchronizeRuntimeVariableCache (
-                   &mVariableModuleGlobal->VariableGlobal.VariableRuntimeCacheContext.VariableRuntimeNvCache,
-                   0,
-                   VariableStoreHeader->Size
-                   );
-    ASSERT_EFI_ERROR (DoneStatus);
-  }
-
-  if (!EFI_ERROR (Status) && EFI_ERROR (DoneStatus)) {
-    Status = DoneStatus;
-  }
-
-  return Status;
-}
-
-/**
   Finds variable in storage blocks of volatile and non-volatile storage areas.
 
   This code finds variable in storage blocks of volatile and non-volatile storage areas.
@@ -2488,7 +2457,6 @@ VariableServiceGetVariable (
   }
 
   if (!EFI_ERROR (Status)) {
-
     UpdateVariableInfo (VariableName, VendorGuid, Variable.Volatile, TRUE, FALSE, FALSE, FALSE, &gVariableInfo);
   }
 
