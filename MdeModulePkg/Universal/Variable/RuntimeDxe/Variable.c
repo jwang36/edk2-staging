@@ -2196,16 +2196,12 @@ UpdateVariable (
   // changes to original data.
   //
   if (!VolatileFlag) {
-    Status = ProtectedVariableLibWriteInit ();
-    if (!EFI_ERROR (Status)) {
-      Status = ProtectedVariableLibUpdate (
-                 Variable->CurrPtr,
-                 Variable->InDeletedTransitionPtr,
-                 NewVariable,
-                 &VarSize
-                 );
-    }
-
+    Status = ProtectedVariableLibUpdate (
+                Variable->CurrPtr,
+                Variable->InDeletedTransitionPtr,
+                NewVariable,
+                &VarSize
+                );
     if (EFI_ERROR (Status) && Status != EFI_UNSUPPORTED) {
       return Status;
     }

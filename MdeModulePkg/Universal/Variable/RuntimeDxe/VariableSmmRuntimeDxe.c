@@ -1666,6 +1666,7 @@ SmmVariableReady (
   ContextIn.IsUserVariable      = NULL;
   ContextIn.UpdateVariableStore = NULL;
   ContextIn.InitVariableStore   = NULL;
+  ContextIn.UpdateVariable      = NULL;
 
   Status = ProtectedVariableLibInitialize (&ContextIn);
   if (EFI_ERROR (Status)) {
