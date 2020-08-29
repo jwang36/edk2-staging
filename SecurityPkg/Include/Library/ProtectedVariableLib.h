@@ -51,6 +51,24 @@ EFI_STATUS
   );
 
 /**
+  Update the variable region with Variable information.
+
+  @param[in] AuthVariableInfo       Pointer AUTH_VARIABLE_INFO structure for
+                                    input of the variable.
+
+  @retval EFI_SUCCESS               The update operation is success.
+  @retval EFI_INVALID_PARAMETER     Invalid parameter.
+  @retval EFI_WRITE_PROTECTED       Variable is write-protected.
+  @retval EFI_OUT_OF_RESOURCES      There is not enough resource.
+
+**/
+typedef
+EFI_STATUS
+(EFIAPI *PROTECTED_VAR_LIB_UPDATE_VARIABLE) (
+  IN AUTH_VARIABLE_INFO     *AuthVariableInfo
+  );
+
+/**
 
   Retrieve details about a variable and return them in VariableInfo->Header.
 
@@ -225,6 +243,7 @@ typedef struct _PROTECTED_VARIABLE_CONTEXT_IN {
   PROTECTED_VAR_LIB_GET_VAR_INFO              GetVariableInfo;
   PROTECTED_VAR_LIB_GET_NEXT_VAR_INFO         GetNextVariableInfo;
   PROTECTED_VAR_LIB_UPDATE_VARIABLE_STORE     UpdateVariableStore;
+  PROTECTED_VAR_LIB_UPDATE_VARIABLE           UpdateVariable;
   PROTECTED_VAR_LIB_IS_USER_VAR               IsUserVariable;
 } PROTECTED_VARIABLE_CONTEXT_IN;
 

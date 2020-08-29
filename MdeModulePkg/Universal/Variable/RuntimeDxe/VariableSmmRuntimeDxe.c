@@ -586,7 +586,6 @@ FindVariableInRuntimeCache (
   )
 {
   EFI_STATUS              Status;
-  UINTN                   TempDataSize;
   VARIABLE_POINTER_TRACK  RtPtrTrack;
   VARIABLE_STORE_TYPE     StoreType;
   VARIABLE_STORE_HEADER   *VariableStoreList[VariableStoreTypeMax];
@@ -651,12 +650,11 @@ FindVariableInRuntimeCache (
       }
 
       if (!EFI_ERROR (Status)) {
-        UpdateVariableInfo (VariableName, VendorGuid, Variable.Volatile, TRUE, FALSE, FALSE, FALSE, &gVariableInfo);
+        UpdateVariableInfo (VariableName, VendorGuid, RtPtrTrack.Volatile, TRUE, FALSE, FALSE, FALSE, &mVariableInfo);
       }
     }
   }
 
-Done:
   if (Status == EFI_SUCCESS || Status == EFI_BUFFER_TOO_SMALL) {
     if (Attributes != NULL && RtPtrTrack.CurrPtr != NULL) {
       *Attributes = RtPtrTrack.CurrPtr->Attributes;
