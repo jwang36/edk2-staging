@@ -304,11 +304,14 @@ GetVariableStore (
 EFI_STATUS
 EFIAPI
 InitNvVariableStore (
-     OUT  EFI_PHYSICAL_ADDRESS              StoreCacheBase OPTIONAL,
-  IN OUT  UINT32                            *StoreCacheSize,
-     OUT  UINT32                            *IndexTable OPTIONAL,
-     OUT  UINT32                            *VariableNumber OPTIONAL,
-     OUT  BOOLEAN                           *AuthFlag OPTIONAL
+     OUT  VOID                      *VarCache OPTIONAL,
+  IN OUT  UINT32                    *VarCacheSize OPTIONAL,
+     OUT  VOID                      *SigBuffer OPTIONAL,
+  IN OUT  UINT32                    *SigBufferSize OPTIONAL,
+  IN      UINT32                    SigSize OPTIONAL,
+  IN      SIGNATURE_METHOD_CALLBACK SigMethod OPTIONAL,
+     OUT  UINT32                    *VarNumber OPTIONAL,
+     OUT  BOOLEAN                   *AuthFlag OPTIONAL
   )
 {
   EFI_STATUS                            Status;
@@ -317,17 +320,29 @@ InitNvVariableStore (
   VARIABLE_HEADER                       *VariableHeader;
   VARIABLE_STORE_INFO                   StoreInfo;
   UINT32                                Size;
-  UINT32                                Index;
+  EFI_PHYSICAL_ADDRESS                  VariableIndex;
   UINT8                                 *StoreCachePtr;
   UINT8                                 *StoreCacheEnd;
+  VARIABLE_SIGNATURE                    *VarSig;
 
-  if (StoreCacheSize == NULL) {
-    ASSERT (StoreCacheSize != NULL);
+  if (VarCacheSize != NULL && *VarCacheSize != 0 && VarCache == NULL) {
+    ASSERT (VarCacheSize != NULL && VarCache != NULL);
+    ASSERT (*VarCacheSize != 0 && VarCache != NULL);
     return EFI_INVALID_PARAMETER;
   }
 
-  if (*StoreCacheSize != 0 && StoreCacheBase == 0) {
-    ASSERT (*StoreCacheSize != 0 && StoreCacheBase != 0);
+  if (SigBuffer != NULL
+      && (SigBufferSize == NULL || *SigBufferSize == 0 || SigSize == 0 || SigMethod == NULL))
+  {
+    ASSERT (SigBuffer != NULL && SigBufferSize != NULL);
+    ASSERT (SigBuffer != NULL && *SigBufferSize > 0);
+    ASSERT (SigBuffer != NULL && SigSize > 0);
+    ASSERT (SigBuffer != NULL && SigMethod != NULL);
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (SigBufferSize != NULL && SigSize == 0) {
+    ASSERT (SigBufferSize != NULL && SigSize > 0);
     return EFI_INVALID_PARAMETER;
   }
 
@@ -336,27 +351,31 @@ InitNvVariableStore (
     return EFI_VOLUME_CORRUPTED;
   }
 
-  StoreCachePtr = (UINT8 *)(UINTN)StoreCacheBase;
-  StoreCacheEnd = StoreCachePtr + (*StoreCacheSize);
-
-  //
-  // Keep both fv and variable store header.
-  //
-  Size = VariableFv->HeaderLength + sizeof (VARIABLE_STORE_HEADER);
-  if ((StoreCachePtr + Size) <= StoreCacheEnd) {
-    CopyMem (
-      StoreCachePtr,
-      (VOID *)VariableFv,
-      Size
-      );
+  StoreCachePtr = (UINT8 *)(UINTN)VarCache;
+  if (VarCache == NULL || VarCacheSize == NULL || *VarCacheSize == 0) {
+    StoreCacheEnd = StoreCachePtr;
+  } else {
+    StoreCacheEnd = StoreCachePtr + (*VarCacheSize);
   }
-  StoreCachePtr += Size;
 
-  Index = 0;
+  if (SigBuffer != NULL) {
+    VarSig = SigBuffer;
+  } else {
+    VarSig = NULL;
+  }
+
+  if (VarNumber != NULL) {
+    *VarNumber = 0;
+  }
+
+  if (SigBufferSize != NULL) {
+    *SigBufferSize = 0;
+  }
+
   Variable = GetStartPointer (StoreInfo.VariableStoreHeader);
   while (GetVariableHeader (&StoreInfo, Variable, &VariableHeader)) {
     //
-    // Skip completely deleted variables to save cache space.
+    // Skip completely deleted variables.
     //
     if (VariableHeader->State != VAR_ADDED
         && VariableHeader->State != (VAR_ADDED & VAR_IN_DELETED_TRANSITION))
@@ -366,10 +385,9 @@ InitNvVariableStore (
     }
 
     //
-    // Record the offset of each variable so that we can restore the full
-    // variable store later when necessary.
+    // Record the offset as index to the variable.
     //
-    if (IndexTable != NULL) {
+    if (VarSig != NULL) {
       if (StoreInfo.FtwLastWriteData == NULL
           || ((EFI_PHYSICAL_ADDRESS)(UINTN)Variable
               < StoreInfo.FtwLastWriteData->SpareAddress)
@@ -380,18 +398,20 @@ InitNvVariableStore (
         //
         // Variable starts in original space.
         //
-        IndexTable[Index] = (UINT32)((UINTN)Variable - (UINTN)StoreInfo.VariableStoreHeader);
+        VariableIndex = (UINTN)Variable - (UINTN)StoreInfo.VariableStoreHeader;
       } else {
         //
         // Variables starts in spare space. Calculate the equivalent offset
         // relative to original store.
         //
-        IndexTable[Index] =
-          (UINT32)(((UINTN)StoreInfo.FtwLastWriteData->TargetAddress
-                    - (UINTN)StoreInfo.VariableStoreHeader)
-                   + ((UINTN)Variable
-                      - (UINTN)StoreInfo.FtwLastWriteData->SpareAddress));
+        VariableIndex = ((UINTN)StoreInfo.FtwLastWriteData->TargetAddress
+                         - (UINTN)StoreInfo.VariableStoreHeader) +
+                        ((UINTN)Variable
+                         - (UINTN)StoreInfo.FtwLastWriteData->SpareAddress);
       }
+
+      VarSig->Next        = 0;
+      VarSig->StoreIndex  = VariableIndex;
     }
 
     //
@@ -400,16 +420,25 @@ InitNvVariableStore (
     StoreCachePtr = (UINT8 *)HEADER_ALIGN (StoreCachePtr);
 
     //
-    // Copy variable header.
+    // Cache variable header.
     //
     Size = (UINT32)GetVariableHeaderSize (StoreInfo.AuthFlag);
     if ((StoreCachePtr + Size) <= StoreCacheEnd) {
       CopyMem (StoreCachePtr, VariableHeader, Size);
     }
+
+    if (VarSig != NULL) {
+      if (VarCache != NULL) {
+        VarSig->CacheIndex = (UINTN)StoreCachePtr - (UINTN)VarCache;
+      } else {
+        VarSig->CacheIndex = (EFI_PHYSICAL_ADDRESS)-1;
+      }
+    }
+
     StoreCachePtr += Size;
 
     //
-    // Copy variable name string.
+    // Cache variable name string.
     //
     Size = (UINT32)NameSizeOfVariable (VariableHeader, StoreInfo.AuthFlag);
     if ((StoreCachePtr + Size) <= StoreCacheEnd) {
@@ -420,10 +449,22 @@ InitNvVariableStore (
         StoreCachePtr
         );
     }
-    StoreCachePtr += Size;
+
+    if (VarSig != NULL) {
+      VarSig->NameSize  = Size;
+    }
+
+    if (SigBufferSize != NULL) {
+      *SigBufferSize += (sizeof (VARIABLE_SIGNATURE)
+                         + SigSize            /* Space for signature value */
+                         + Size               /* Space for variable name */
+                        );
+    }
+
+    StoreCachePtr += Size + GET_PAD_SIZE (Size);
 
     //
-    // Copy variable data.
+    // Cache variable data.
     //
     Size = (UINT32)DataSizeOfVariable (VariableHeader, StoreInfo.AuthFlag);
     if ((StoreCachePtr + Size) <= StoreCacheEnd) {
@@ -434,30 +475,58 @@ InitNvVariableStore (
         StoreCachePtr
         );
     }
-    StoreCachePtr += Size;
+
+    //
+    // Calculate sigature for the variable.
+    //
+    if (VarSig != NULL) {
+      VarSig->DataSize = Size;
+
+      CopyGuid (&VarSig->VendorGuid, &VariableHeader->VendorGuid);
+      GetVariableNameOrData (
+        &StoreInfo,
+        (UINT8 *)GetVariableNamePtr (Variable, StoreInfo.AuthFlag),
+        VarSig->NameSize,
+        (UINT8 *)VAR_NAME (VarSig)
+        );
+
+      VarSig->SigSize = SigSize;
+      if (VarCache != NULL) {
+        Status = SigMethod ((UINTN)VarCache + VarSig->CacheIndex, VarSig);
+      } else {
+        Status = SigMethod (VariableHeader, VarSig);
+      }
+      ASSERT_EFI_ERROR (Status);
+
+      VarSig->Next = (EFI_PHYSICAL_ADDRESS)(UINTN)VarSig + END_OF_SIG (VarSig);
+      VarSig = (VARIABLE_SIGNATURE *)(UINTN)VarSig->Next;
+    }
 
     //
     // Try next variable.
     //
     Variable = GetNextVariablePtr (&StoreInfo, Variable, Variable);
-    Index += 1;
-  }
+    if (VarNumber != NULL) {
+      *VarNumber += 1;
+    }
 
-  if (VariableNumber != NULL) {
-    *VariableNumber = Index;
+    StoreCachePtr += Size;
   }
 
   if (AuthFlag != NULL) {
     *AuthFlag = StoreInfo.AuthFlag;
   }
 
-  if (*StoreCacheSize == 0) {
+  if (VarCacheSize != NULL) {
+    *VarCacheSize = (UINT32)((UINTN)StoreCachePtr - (UINTN)VarCache);
+  }
+
+  if ((VarCache == NULL && VarCacheSize != NULL && *VarCacheSize > 0)
+      || (SigBuffer == NULL && SigBufferSize != NULL && *SigBufferSize > 0)) {
     Status = EFI_BUFFER_TOO_SMALL;
   } else {
     Status = EFI_SUCCESS;
   }
-
-  *StoreCacheSize = (UINT32)((EFI_PHYSICAL_ADDRESS)StoreCachePtr - StoreCacheBase);
 
   return Status;
 }

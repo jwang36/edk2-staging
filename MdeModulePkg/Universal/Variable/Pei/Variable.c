@@ -243,25 +243,60 @@ FindVariable (
 {
   EFI_STATUS                  Status;
   VARIABLE_STORE_TYPE         Type;
+  PROTECTED_VARIABLE_INFO     CurrVar;
+  PROTECTED_VARIABLE_INFO     InDelVar;
 
   if (VariableName[0] != 0 && VendorGuid == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
-  for (Type = (VARIABLE_STORE_TYPE) 0; Type < VariableStoreTypeMax; Type++) {
-    GetVariableStore (Type, StoreInfo);
-    Status = FindVariableEx (
-               StoreInfo,
-               VariableName,
-               VendorGuid,
-               PtrTrack
-               );
-    if (!EFI_ERROR (Status)) {
-      return Status;
+  ZeroMem (&CurrVar, sizeof (CurrVar)); 
+  ZeroMem (&InDelVar, sizeof (InDelVar));
+  Status = ProtectedVariableLibFindVariable (
+            VariableName,
+            VendorGuid,
+            &CurrVar,
+            &InDelVar
+            );
+  if (!EFI_ERROR (Status)) {
+    if (CurrVar.Index != VAR_INDEX_INVALID) {
+      Type = RShiftU64 (CurrVar.Index, 64 - 8);
+      GetVariableStore (Type, StoreInfo);
+      GetVariableInfo (StoreInfo, &CurrVar);
+      PtrTrack->CurrPtr = CurrVar.Address;
+    }
+
+    if (InDelVar.Index != VAR_INDEX_INVALID) {
+      Type = RShiftU64 (InDelVar.Index, 64 - 8);
+      GetVariableStore (Type, StoreInfo);
+      GetVariableInfo (StoreInfo, &InDelVar);
+      PtrTrack->InDeletedTransitionPtr = InDelVar.Address;
+    }
+
+    if (StoreInfo->VariableStoreHeader != NULL) {
+      PtrTrack->StartPtr  = GetStartPointer (StoreInfo->VariableStoreHeader);
+      PtrTrack->EndPtr    = GetEndPointer   (StoreInfo->VariableStoreHeader);
+    }
+  } else if (Status == EFI_UNSUPPORTED) {
+    for (Type = (VARIABLE_STORE_TYPE)0; Type < VariableStoreTypeMax; Type++) {
+      GetVariableStore (Type, StoreInfo);
+      Status = FindVariableEx (
+                 StoreInfo,
+                 VariableName,
+                 VendorGuid,
+                 PtrTrack
+                 );
+      if (!EFI_ERROR (Status)) {
+        return Status;
+      }
     }
   }
 
-  return EFI_NOT_FOUND;
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return EFI_SUCCESS;
 }
 
 /**
@@ -317,7 +352,10 @@ PeiGetVariable (
     return EFI_NOT_FOUND;
   }
 
-  VariableHeader = NULL;
+  Status = ProtectedVariableLibGet (VariableName, VendorGuid, Attributes, DataSize, Data);
+  if (Status != EFI_UNSUPPORTED) {
+    return Status;
+  }
 
   //
   // Find existing variable
@@ -326,34 +364,29 @@ PeiGetVariable (
   if (EFI_ERROR (Status)) {
     return Status;
   }
+
+  VariableHeader = NULL;
   GetVariableHeader (&StoreInfo, Variable.CurrPtr, &VariableHeader);
 
-  Status = ProtectedVariableLibGetStore (NULL, &StoreHeader);
-  if (!EFI_ERROR (Status) && StoreInfo.VariableStoreHeader == StoreHeader) {
-    //
-    // Protected (maybe encrypted) variable.
-    //
-    Status = ProtectedVariableLibGetData (
-               VariableHeader,
-               Data,
-               (UINT32 *)DataSize,
-               StoreInfo.AuthFlag
-               );
-  } else {
-    //
-    // General variable.
-    //
-    VarDataSize = DataSizeOfVariable (VariableHeader, StoreInfo.AuthFlag);
-    if (*DataSize >= VarDataSize) {
-      if (Data == NULL) {
-        return EFI_INVALID_PARAMETER;
-      }
-
-      GetVariableNameOrData (&StoreInfo, GetVariableDataPtr (Variable.CurrPtr, VariableHeader, StoreInfo.AuthFlag), VarDataSize, Data);
-      Status = EFI_SUCCESS;
-    } else {
-      Status = EFI_BUFFER_TOO_SMALL;
+  //
+  // General variable.
+  //
+  VarDataSize = DataSizeOfVariable (VariableHeader, StoreInfo.AuthFlag);
+  if (*DataSize >= VarDataSize) {
+    if (Data == NULL) {
+      return EFI_INVALID_PARAMETER;
     }
+
+    GetVariableNameOrData (
+      &StoreInfo,
+      GetVariableDataPtr (Variable.CurrPtr, VariableHeader, StoreInfo.AuthFlag),
+      VarDataSize,
+      Data
+      );
+
+    Status = EFI_SUCCESS;
+  } else {
+    Status = EFI_BUFFER_TOO_SMALL;
   }
 
   if (Attributes != NULL) {

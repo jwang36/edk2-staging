@@ -21,7 +21,68 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/UefiLib.h>
 #include <Library/EncryptionVariableLib.h>
 
-typedef VARIABLE_ENCRYPTION_INFO      PROTECTED_VARIABLE_INFO;
+#pragma pack(1)
+
+typedef struct _VARIABLE_SIGNATURE {
+  //
+  // Pointer to signature of next variable in a pre-defined rule of order for
+  // integration verification. In other words, the final signature of all
+  // protected variables is calculated by cancatelating signature of each
+  // variable in the order of this singly linked list.
+  //
+  EFI_PHYSICAL_ADDRESS    Prev;
+  EFI_PHYSICAL_ADDRESS    Next;
+  //
+  // Index of variable in physical store, used to locate the variable directly
+  // inside variable store (Implementation dependent).
+  //
+  EFI_PHYSICAL_ADDRESS    StoreIndex;
+  //
+  // Index of variable in memory cache, used to locate the variable directly
+  // inside the cache (Implementation dependent).
+  //
+  EFI_PHYSICAL_ADDRESS    CacheIndex;
+  //
+  // Frequently accessed information reguarding to the variable.
+  //
+  UINT16                  SigSize;
+  UINT16                  NameSize;
+  UINT32                  DataSize;
+  UINT32                  PlainDataSize;
+  UINT32                  State;
+  UINT32                  Attributes;
+
+  EFI_GUID                VendorGuid;
+  //CHAR16                VariableName[NameSize/2];
+  //UINT8                 SigValue[SigSize];
+} VARIABLE_SIGNATURE;
+
+#pragma pack()
+
+#define VAR_SIG_NAMEOFF(VarSig)     (sizeof (VARIABLE_SIGNATURE))
+#define VAR_SIG_SIGOFF(VarSig)      (VAR_SIG_NAMEOFF (VarSig) + (VarSig)->NameSize)
+#define VAR_SIG_GUIDOFF(VarSig)     OFFSET_OF (VARIABLE_SIGNATURE, VendorGuid)
+
+#define VAR_SIG_END(VarSig)         (VAR_SIG_SIGOFF (VarSig) + (VarSig)->SigSize)
+
+#define VAR_SIG_VALUE(VarSig)       (VOID *)((UINTN)(VarSig) + VAR_SIG_SIGOFF (VarSig))
+#define VAR_SIG_NAME(VarSig)        (CHAR16 *)((UINTN)(VarSig) + VAR_SIG_NAMEOFF (VarSig))
+#define VAR_SIG_GUID(VarSig)        (EFI_GUID *)((UINTN)(VarSig) + VAR_SIG_GUIDOFF (VarSig))
+
+#define VAR_SIG_PTR(Addr)           ((VARIABLE_SIGNATURE *)(UINTN)(Addr))
+#define VAR_SIG_NEXT(VarSig)        (VAR_SIG_PTR ((VarSig)->Next))
+#define VAR_SIG_PREV(VarSig)        (VAR_SIG_PTR ((VarSig)->Prev))
+
+#define VAR_INDEX_INVALID           (-1ULL)
+
+#define VAR_INDEX_STORE_TYPE_MASK   (0x8000000000000000ULL)
+#define VAR_INDEX_STORE_TYPE_HOB    (0x8000000000000000ULL)
+#define VAR_INDEX_STORE_TYPE_NV     (0x8100000000000000ULL)
+#define VAR_INDEX_STORE_TYPE(Index) ((UINTN)RShiftU64(Index, 56) & 0x7F)
+
+#define VAR_HDR_PTR(Addr)           ((VARIABLE_HEADER *)(UINTN)(Addr))
+
+typedef VARIABLE_ENCRYPTION_INFO    PROTECTED_VARIABLE_INFO;
 
 /**
 
@@ -48,6 +109,24 @@ EFI_STATUS
   IN  UINTN                       Offset,
   IN  UINT32                      Size,
   IN  UINT8                       *Buffer
+  );
+
+/**
+  Update the variable region with Variable information.
+
+  @param[in] AuthVariableInfo       Pointer AUTH_VARIABLE_INFO structure for
+                                    input of the variable.
+
+  @retval EFI_SUCCESS               The update operation is success.
+  @retval EFI_INVALID_PARAMETER     Invalid parameter.
+  @retval EFI_WRITE_PROTECTED       Variable is write-protected.
+  @retval EFI_OUT_OF_RESOURCES      There is not enough resource.
+
+**/
+typedef
+EFI_STATUS
+(EFIAPI *PROTECTED_VAR_LIB_UPDATE_VARIABLE) (
+  IN AUTH_VARIABLE_INFO     *AuthVariableInfo
   );
 
 /**
@@ -117,6 +196,14 @@ EFI_STATUS
   IN  OUT PROTECTED_VARIABLE_INFO   *VariableInfo
   );
 
+
+typedef
+EFI_STATUS
+(EFIAPI *SIGNATURE_METHOD_CALLBACK) (
+  IN      VARIABLE_HEADER           *Variable,
+  IN  OUT VARIABLE_SIGNATURE        *Signature
+  );
+
 /**
 
   Initialize a memory copy of NV variable storage.
@@ -134,10 +221,14 @@ EFI_STATUS
   the caller can prepare correct cache buffer and index table buffer before
   next calling.
 
-  @param[in]      StoreCacheBase  Base address of NV variable storage cache.
-  @param[in,out]  CacheSize       Size of buffer given by StoreCacheBase.
+  @param[in]      CacheBase       Base address of NV variable storage cache.
+  @param[in]      CacheSize       Size of CacheBuffer.
   @param[out]     CacheSize       Size of required cache buffer.
-  @param[out]     IndexTable      Offset array, in order, of each valid variable.
+  @param[out]     SignatureBuffer Base address of signature of each variable.
+  @param[in]      SignatureSize   Signature size of one variable if SignatureBuffer is NULL.
+                                  Size of SignatureBuffer if SignatureBuffer is NOT NULL.
+  @param[out]     SignatureSize   Required size of SignatureBuffer if SignatureBuffer is NULL.
+  @param[out]     SignatureMethod Method used to generate signature for each variable.
   @param[out]     VariableNumber  Number of valid variables.
   @param[out]     AuthFlag        Auth-variable indicator.
 
@@ -151,10 +242,13 @@ EFI_STATUS
 typedef
 EFI_STATUS
 (EFIAPI *PROTECTED_VAR_LIB_INIT_VAR_STORE) (
-     OUT  EFI_PHYSICAL_ADDRESS      StoreCacheBase OPTIONAL,
-  IN OUT  UINT32                    *CacheSize,
-     OUT  UINT32                    *IndexTable OPTIONAL,
-     OUT  UINT32                    *VariableNumber OPTIONAL,
+     OUT  VOID                      *CacheBase OPTIONAL,
+  IN OUT  UINT32                    *CacheSize OPTIONAL,
+     OUT  VOID                      *SigBuffer OPTIONAL,
+  IN OUT  UINT32                    *SigBufferSize OPTIONAL,
+  IN      UINT32                    SigSize OPTIONAL,
+  IN      SIGNATURE_METHOD_CALLBACK SigMethod OPTIONAL,
+     OUT  UINT32                    *VarNumber OPTIONAL,
      OUT  BOOLEAN                   *AuthFlag OPTIONAL
   );
 
@@ -225,6 +319,7 @@ typedef struct _PROTECTED_VARIABLE_CONTEXT_IN {
   PROTECTED_VAR_LIB_GET_VAR_INFO              GetVariableInfo;
   PROTECTED_VAR_LIB_GET_NEXT_VAR_INFO         GetNextVariableInfo;
   PROTECTED_VAR_LIB_UPDATE_VARIABLE_STORE     UpdateVariableStore;
+  PROTECTED_VAR_LIB_UPDATE_VARIABLE           UpdateVariable;
   PROTECTED_VAR_LIB_IS_USER_VAR               IsUserVariable;
 } PROTECTED_VARIABLE_CONTEXT_IN;
 
@@ -433,6 +528,27 @@ ProtectedVariableLibReclaim (
   IN  OUT UINTN                       *HwErrVariableTotalSize,
   IN  OUT UINTN                       *CommonVariableTotalSize,
   IN  OUT UINTN                       *CommonUserVariableTotalSize
+  );
+
+/**
+  Find the variable managed by ProtectedVariableLib.
+
+  @param  VariableName  Name of the variable to be found
+  @param  VendorGuid    Vendor GUID to be found.
+  @param  Variable      Pointer to variable with state VAR_ADDED.
+  @param  VariableInDel Pointer to variable with state VAR_IN_DELETED_TRANSITION.
+
+  @retval  EFI_SUCCESS            Variable found successfully
+  @retval  EFI_NOT_FOUND          Variable not found
+  @retval  EFI_INVALID_PARAMETER  Invalid variable name
+**/
+EFI_STATUS
+EFIAPI
+ProtectedVariableLibFindVariable (
+  IN      CONST  CHAR16           *VariableName,
+  IN      CONST  EFI_GUID         *VendorGuid,
+      OUT PROTECTED_VARIABLE_INFO **Variable,
+      OUT PROTECTED_VARIABLE_INFO **VariableInDel OPTIONAL
   );
 
 /**

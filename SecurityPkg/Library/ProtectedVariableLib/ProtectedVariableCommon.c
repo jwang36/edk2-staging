@@ -237,6 +237,109 @@ UpdateVariableMetadataHmac (
   return TRUE;
 }
 
+EFI_STATUS
+EFIAPI
+GetVariableHmacInternal (
+  IN      PROTECTED_VARIABLE_CONTEXT_IN   *ContextIn,
+  IN      PROTECTED_VARIABLE_GLOBAL       *Global,
+  IN      PROTECTED_VARIABLE_INFO         VarInfo,
+  IN  OUT VARIABLE_SIGNATURE              *VarSig
+  )
+{
+  VOID                            *Context;
+
+  //
+  // Don't calc HMAC for unprotected variables. Keep a copy of its data instead.
+  //
+  if (CheckKnownUnprotectedVariable (Global, &VarInfo) < UnprotectedVarIndexMax) {
+    CopyMem (VAR_SIGNATURE (VarSig), VarInfo->Header.Data, VarInfo->Header.DataSize);
+    VarSig->SigSize = VarInfo->Header.DataSize;
+    return EFI_SUCCESS;
+  }
+
+  ASSERT (VarSig->SigSize >= sizeof (Global->MetaDataHmacKey));
+
+  Context = HmacSha256New ();
+  if (Context == NULL) {
+    ASSERT (Context != NULL);
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  if (!HmacSha256SetKey (Context, Global->MetaDataHmacKey, sizeof (Global->MetaDataHmacKey))
+      || !UpdateVariableMetadataHmac (Context, VarInfo)
+      || !HmacSha256Final (Context, VAR_SIG_VALUE (VarSig)))
+  {
+    ASSERT (FALSE);
+    Status = EFI_ABORTED;
+  } else {
+    Status = EFI_SUCCESS;
+  }
+
+  HmacSha256Free (Context);
+
+  return Status;;
+}
+
+EFI_STATUS
+EFIAPI
+GetVariableHmac (
+  IN      VARIABLE_HEADER     *Variable,
+  IN  OUT VARIABLE_SIGNATURE  *VarSig
+  )
+{
+  EFI_STATUS                      Status;
+  PROTECTED_VARIABLE_CONTEXT_IN   *ContextIn;
+  PROTECTED_VARIABLE_GLOBAL       *Global;
+  PROTECTED_VARIABLE_INFO         VarInfo;
+
+  Status = GetProtectedVariableContext (&ContextIn, &Global);
+  if (EFI_ERROR (Status)) {
+    ASSERT_EFI_ERROR (Status);
+    return Status;
+  }
+
+  VarInfo.Address    = Variable;
+  VarInfo.Flags.Auth = Global->Flags.Auth;
+  VarInfo.CacheIndex = (UINT32)-1;
+  VarInfo.StoreIndex = (UINT32)-1;
+
+  Status = ContextIn->GetVariableInfo (NULL, &VarInfo);
+  if (EFI_ERROR (Status)) {
+    ASSERT_EFI_ERROR (Status);
+    return Status;
+  }
+
+  return GetVariableHmacInternal (ContextIn, Global, VarInfo, VarSig);
+}
+
+EFI_STATUS
+VerifyVariableHmac (
+  IN  PROTECTED_VARIABLE_CONTEXT_IN   *ContextIn,
+  IN  PROTECTED_VARIABLE_GLOBAL       *Global,
+  IN  PROTECTED_VARIABLE_INFO         *VarInfo,
+  IN  VARIABLE_SIGNATURE              *VarSig
+  )
+{
+  EFI_STATUS         Status;
+  VARIABLE_SIGNATURE *NewVarSig;
+
+  NewVarSig = AllocateZeroPool (sizeof (VARIABLE_SIGNATURE) + VarSig->SigSize);
+  if (NewVarSig == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  Status = GetVariableHmacInternal (ContextIn, Global, VarInfo, NewVarSig);
+  if (!EFI_ERROR (Status)) {
+    if (CompareMem (VAR_SIG_VALUE (VarSig), VAR_SIG_VALUE (NewVarSig)) != 0) {
+      Status = EFI_COMPROMISED_DATA;
+    }
+  }
+
+  FreePool (NewVarSig);
+  return Status;
+}
+
+
 /**
 
   Retrieve the cached copy of NV variable storage.
@@ -262,13 +365,13 @@ GetVariableStoreCache (
   VARIABLE_STORE_HEADER           *VarStoreHeader;
   UINT32                          Size;
 
-  if (Global->ProtectedVariableCache == 0) {
-    return EFI_NOT_FOUND;
+  if (Global->VariableCache == 0 || Global->VariableCacheSize == 0) {
+    return EFI_NOT_READY;
   }
 
-  FvHeader = (EFI_FIRMWARE_VOLUME_HEADER *)(UINTN)Global->ProtectedVariableCache;
+  FvHeader = (EFI_FIRMWARE_VOLUME_HEADER *)(UINTN)Global->VariableCache;
   VarStoreHeader = (VARIABLE_STORE_HEADER *)(UINTN)
-                   (Global->ProtectedVariableCache + FvHeader->HeaderLength);
+                   (Global->VariableCache + FvHeader->HeaderLength);
 
   if (VariableFvHeader != NULL) {
     *VariableFvHeader = FvHeader;
@@ -285,7 +388,7 @@ GetVariableStoreCache (
   if (VariableEnd != NULL) {
     Size = VarStoreHeader->Size + FvHeader->HeaderLength;
     Size = MIN (Size, (UINT32)FvHeader->FvLength);
-    Size = MIN (Size, Global->ProtectedVariableCacheSize);
+    Size = MIN (Size, Global->VariableCacheSize);
 
     *VariableEnd = (VARIABLE_HEADER *)((UINTN)FvHeader + Size);
   }
@@ -617,6 +720,90 @@ IsValidProtectedVariable (
 }
 
 /**
+  Find the variable managed by ProtectedVariableLib.
+
+  @param  VariableName  Name of the variable to be found
+  @param  VendorGuid    Vendor GUID to be found.
+  @param  Variable      Pointer to variable with state VAR_ADDED.
+  @param  VariableInDel Pointer to variable with state VAR_IN_DELETED_TRANSITION.
+
+  @retval  EFI_SUCCESS            Variable found successfully
+  @retval  EFI_NOT_FOUND          Variable not found
+  @retval  EFI_INVALID_PARAMETER  Invalid variable name
+**/
+EFI_STATUS
+EFIAPI
+ProtectedVariableLibFindVariable (
+  IN      CONST  CHAR16           *VariableName,
+  IN      CONST  EFI_GUID         *VendorGuid,
+      OUT VARIABLE_HEADER         *Variable,
+      OUT VARIABLE_HEADER         *VariableInDel OPTIONAL
+  )
+{
+  EFI_STATUS                    Status;
+  PROTECTED_VARIABLE_CONTEXT_IN *ContextIn;
+  PROTECTED_VARIABLE_GLOBAL     *Global;
+  VARIABLE_SIGNATURE            *VarSig;
+  PROTECTED_VARIABLE_INFO       VarInfo;
+
+  if (VariableName == NULL || VendorGuid == NULL || Variable == NULL) {
+    ASSERT (VariableName != NULL);
+    ASSERT (VendorGuid != NULL);
+    ASSERT (Variable != NULL);
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = GetProtectedVariableContext (&ContextIn, &Global);
+  if (EFI_ERROR (Status)) {
+    ASSERT_EFI_ERROR (Status);
+    return Status;
+  }
+
+  ZeroMem (&VarInfo, sizeof (VarInfo));
+  *Variable = NULL;
+  if (VariableInDel != NULL) {
+    *VariableInDel = NULL;
+  }
+
+  VarSig = VAR_SIG_PTR (Global->VariableSignatures);
+  while (VarSig != NULL) {
+    VarInfo.Header.VariableName = VAR_SIG_NAME (VarSig);
+    VarInfo.Header.VendorGuid   = VAR_SIG_GUID (VarSig);
+
+    if (IS_VARIABLE (&VarInfo.Header, VariableName, VendorGuid)) {
+      if (VarSig->CacheIndex != VAR_INDEX_INVALID) {
+        VarInfo.Index   = VarSig->CacheIndex;
+        VarInfo.Address = VAR_PTR (Global->VariableCache + VarInfo.Index);
+      } else {
+        VarInfo.Index   = VarSig->StoreIndex;
+        VarInfo.Address = NULL;
+
+        Status = ContextIn->GetVariableInfo (NULL, &VarInfo);
+        if (EFI_ERROR (Status) || VarInfo.Address == NULL) {
+          return EFI_COMPROMISED_DATA;
+        }
+      }
+
+      if (VarSig->State == VAR_ADDED) {
+        *Variable = VarInfo.Address;
+      } else if (VariableInDel != NULL) {
+        *VariableInDel = VarInfo.Address;
+      }
+
+      if (*Variable != NULL && (VariableInDel == NULL || *VariableInDel != NULL)) {
+        break;
+      }
+    } else if (*Variable != NULL || (VariableInDel != NULL && *VariableInDel != NULL)) {
+      break;
+    }
+
+    VarSig = VAR_SIG_NEXT (VarSig);
+  }
+
+  return EFI_SUCCESS;
+}
+
+/**
 
   An alternative version of ProtectedVariableLibGetData to get plain data, if
   encrypted, from given variable, for different use cases.
@@ -631,8 +818,10 @@ IsValidProtectedVariable (
 **/
 EFI_STATUS
 EFIAPI
-ProtectedVariableLibGetDataInfo (
-  IN  OUT PROTECTED_VARIABLE_INFO       *VarInfo
+ProtectedVariableLibGetDataInfoInternal (
+  IN      PROTECTED_VARIABLE_CONTEXT_IN     *ContextIn,
+  IN      PROTECTED_VARIABLE_GLOBAL         *Global,
+  IN  OUT PROTECTED_VARIABLE_INFO           *VarInfo
   )
 {
   EFI_STATUS                        Status;
@@ -827,6 +1016,38 @@ ProtectedVariableLibGetDataInfo (
 
 /**
 
+  An alternative version of ProtectedVariableLibGetData to get plain data, if
+  encrypted, from given variable, for different use cases.
+
+  @param[in,out]      VarInfo     Pointer to structure containing variable information.
+
+  @retval EFI_SUCCESS               Found the specified variable.
+  @retval EFI_INVALID_PARAMETER     VarInfo is NULL or both VarInfo->Address and
+                                    VarInfo->Offset are invalid.
+  @retval EFI_NOT_FOUND             The specified variable could not be found.
+
+**/
+EFI_STATUS
+EFIAPI
+ProtectedVariableLibGetDataInfo (
+  IN  OUT PROTECTED_VARIABLE_INFO       *VarInfo
+  )
+{
+  EFI_STATUS                        Status;
+  PROTECTED_VARIABLE_CONTEXT_IN     *ContextIn;
+  PROTECTED_VARIABLE_GLOBAL         *Global;
+
+  Status = GetProtectedVariableContext (&ContextIn, &Global);
+  if (EFI_ERROR (Status)) {
+    ASSERT_EFI_ERROR (Status);
+    return Status;
+  }
+
+  return ProtectedVariableLibGetDataInfoInternal (ContextIn, Global, VarInfo);
+}
+
+/**
+
   Retrieve plain data, if encrypted, of given variable.
 
   If variable encryption is employed, this function will initiate a SMM request
@@ -869,12 +1090,194 @@ ProtectedVariableLibGetData (
   VarInfo.PlainData     = Data;
   VarInfo.PlainDataSize = *DataSize;
 
-  Status = ProtectedVariableLibGetDataInfo (&VarInfo);
+  Status = ProtectedVariableLibGetDataInfoInternal (ContextIn, Global, &VarInfo);
   if (!EFI_ERROR (Status) || Status == EFI_BUFFER_TOO_SMALL) {
     if (VarInfo.PlainDataSize > *DataSize) {
       Status = EFI_BUFFER_TOO_SMALL;
     }
     *DataSize = VarInfo.PlainDataSize;
+  }
+
+  return Status;
+}
+
+/**
+  This service retrieves a variable's value using its name and GUID.
+
+  Read the specified variable from the UEFI variable store. If the Data
+  buffer is too small to hold the contents of the variable, the error
+  EFI_BUFFER_TOO_SMALL is returned and DataSize is set to the required buffer
+  size to obtain the data.
+
+  @param  VariableName          A pointer to a null-terminated string that is the variable's name.
+  @param  VariableGuid          A pointer to an EFI_GUID that is the variable's GUID. The combination of
+                                VariableGuid and VariableName must be unique.
+  @param  Attributes            If non-NULL, on return, points to the variable's attributes.
+  @param  DataSize              On entry, points to the size in bytes of the Data buffer.
+                                On return, points to the size of the data returned in Data.
+  @param  Data                  Points to the buffer which will hold the returned variable value.
+                                May be NULL with a zero DataSize in order to determine the size of the buffer needed.
+
+  @retval EFI_SUCCESS           The variable was read successfully.
+  @retval EFI_NOT_FOUND         The variable was be found.
+  @retval EFI_BUFFER_TOO_SMALL  The DataSize is too small for the resulting data.
+                                DataSize is updated with the size required for
+                                the specified variable.
+  @retval EFI_INVALID_PARAMETER VariableName, VariableGuid, DataSize or Data is NULL.
+  @retval EFI_DEVICE_ERROR      The variable could not be retrieved because of a device error.
+
+**/
+EFI_STATUS
+EFIAPI
+ProtectedVariableLibGet (
+  IN CONST  CHAR16                          *VariableName,
+  IN CONST  EFI_GUID                        *VariableGuid,
+  OUT       UINT32                          *Attributes,
+  IN OUT    UINTN                           *DataSize,
+  OUT       VOID                            *Data OPTIONAL
+  )
+{
+  EFI_STATUS                          Status;
+  PROTECTED_VARIABLE_CONTEXT_IN       *ContextIn;
+  PROTECTED_VARIABLE_GLOBAL           *Global;
+  VARIABLE_SIGNATURE                  *VarSig;
+  VARIABLE_SIGNATURE                  *CurrVarSig;
+  PROTECTED_VARIABLE_INFO             VarInfo;
+  EFI_GUID                            VendorGuid;
+  EFI_TIME                            TimeStamp;
+  VOID                                *DataBuffer;
+
+  if (VariableName == NULL || VendorGuid == NULL || DataSize == NULL) {
+    ASSERT (VariableName != NULL);
+    ASSERT (VendorGuid != NULL);
+    ASSERT (DataSize != NULL);
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = GetProtectedVariableContext (&ContextIn, &Global);
+  if (EFI_ERROR (Status)) {
+    ASSERT_EFI_ERROR (Status);
+    return Status;
+  }
+
+  ZeroMem (&VarInfo, sizeof (VarInfo));
+  VarInfo.Index = VAR_INDEX_INVALID;
+  DataBuffer    = NULL;
+
+  if (Data != NULL && Global->LastAccessedVariable != 0) {
+    VarSig = VAR_SIG_PTR (Global->LastAccessedVariable);
+
+    VarInfo.Header.VariableName = VAR_SIG_NAME (VarSig);
+    VarInfo.Header.VendorGuid   = VAR_SIG_GUID (VarSig);
+
+    if (IS_VARIABLE (&VarInfo.Header, VariableName, VendorGuid)) {
+      VarInfo.Index = (VarSig->CacheIndex != VAR_INDEX_INVALID)
+                      ? VarSig->CacheIndex
+                      : VarSig->StoreIndex;
+    }
+  }
+
+  //
+  // Search all variables if it's not the one accessed last time.
+  //
+  if (VarInfo.Index == VAR_INDEX_INVALID) {
+    VarSig = VAR_SIG_PTR (Global->VariableSignatures);
+    while (VarSig != NULL) {
+      VarInfo.Header.VariableName = VAR_SIG_NAME (VarSig);
+      VarInfo.Header.VendorGuid   = VAR_SIG_GUID (VarSig);
+
+      if (IS_VARIABLE (&VarInfo.Header, VariableName, VendorGuid)) {
+        VarInfo.Index = (VarSig->CacheIndex != VAR_INDEX_INVALID)
+                        ? VarSig->CacheIndex
+                        : VarSig->StoreIndex;
+        if (VarSig->State == VAR_ADDED) {
+          break;
+        }
+      } else if (VarInfo.Index != VAR_INDEX_INVALID) {
+        VarSig = NULL;
+        break;
+      }
+
+      VarSig = VAR_SIG_NEXT (VarSig);
+    }
+  }
+
+  if (VarSig == NULL || VarInfo.Index == VAR_INDEX_INVALID) {
+    return EFI_NOT_FOUND;
+  }
+
+  if (Attributes != NULL) {
+    *Attributes = VarSig->Attributes;
+  }
+
+  if (Data == NULL || *DataSize < VarSig->PlainDataSize) {
+    *DataSize = VarSig->PlainDataSize;
+    return EFI_BUFFER_TOO_SMALL;
+  }
+
+  //
+  // Verify signature before copy the data back, if the variable is not in cache.
+  //
+  if (VarSig->CacheIndex == VAR_INDEX_INVALID) {
+    ASSERT (VarSig->StoreIndex != VAR_INDEX_INVALID);
+
+    //
+    // Get detailed information about the variable.
+    //
+    DataBuffer = AllocatePool (VarSig->DataSize);
+    if (DataBuffer == NULL) {
+      ASSERT (DataBuffer != NULL);
+      return EFI_OUT_OF_RESOURCES;
+    }
+
+    //
+    // Note the variable might be in inconsecutive space.
+    //
+    VarInfo.Header.VariableName = VAR_SIG_NAME (VarSig);
+    VarInfo.Header.NameSize     = 0;  // Prevent name from being retrieved again.
+    VarInfo.Header.TimeStamp    = &TimeStamp;
+    VarInfo.Header.VendorGuid   = &VendorGuid;
+    VarInfo.Header.Data         = DataBuffer;
+    VarInfo.Header.DataSize     = VarSig->DataSize;
+
+    Status = ContextIn->GetVariableInfo (&VarInfo);
+    ASSERT_EFI_ERROR (Status);
+
+    //
+    // The variable must be validated against its HMAC value to avoid TOCTOU,
+    // if it's not been cached yet.
+    //
+    Status = VerifyVariableHmac (ContextIn, Global, &VarInfo, VarSig);
+    if (EFI_ERROR (Status)) {
+      goto Done;
+    }
+  } else {
+    //
+    // CacheIndex is the address of variable in cache.
+    //
+    VarInfo.Index   = VAR_INDEX_INVALID;
+    VarInfo.Buffer  = (VOID *)(UINTN)VarSig->CacheIndex;
+
+    Status = ContextIn->GetVariableInfo (&VarInfo);
+    ASSERT_EFI_ERROR (Status);
+  }
+
+  //
+  // Decrypt the data, if encrypted.
+  //
+  VarInfo.PlainData     = Data;
+  VarInfo.PlainDataSize = *DataSize;
+  Status = ProtectedVariableLibGetDataInfoInternal (ContextIn, Global, VarInfo);
+  if (!EFI_ERROR (Status) || Status == EFI_BUFFER_TOO_SMALL) {
+    if (VarInfo.PlainDataSize > *DataSize) {
+      Status = EFI_BUFFER_TOO_SMALL;
+    }
+    *DataSize = VarInfo.PlainDataSize;
+  }
+
+Done:
+  if (DataBuffer != NULL) {
+    FreePool (DataBuffer);
   }
 
   return Status;
