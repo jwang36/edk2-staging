@@ -775,6 +775,7 @@ ProtectedVariableLibInitialize (
     // There's no MetaDataHmacVariable found for protected variables. Suppose
     // the variable storage is compromised.
     //
+    // TODO: add logic to detect first boot here
     Status = EFI_COMPROMISED_DATA;
   }
 

@@ -66,17 +66,6 @@ VariableWriteProtocolCallback (
   return EFI_SUCCESS;
 }
 
-EFI_STATUS
-EFIAPI
-ProtectedVariableEndOfDxeCallback (
-  IN CONST EFI_GUID                       *Protocol,
-  IN VOID                                 *Interface,
-  IN EFI_HANDLE                           Handle
-  )
-{
-  return LockVariableKeyInterface ();
-}
-
 /**
 
   Initialization for protected variable services.
@@ -106,8 +95,6 @@ ProtectedVariableLibInitialize (
   PROTECTED_VARIABLE_CONTEXT_IN   *ProtectedVarContext;
   PROTECTED_VARIABLE_GLOBAL       *OldGlobal;
   PROTECTED_VARIABLE_GLOBAL       *NewGlobal;
-  VOID                            *VarWriteReg;
-  VOID                            *EndOfDxeReg;
 
   if (ContextIn == NULL
       || ContextIn->StructVersion != PROTECTED_VARIABLE_CONTEXT_IN_STRUCT_VERSION
@@ -163,26 +150,8 @@ ProtectedVariableLibInitialize (
     return Status;
   }
 
-  //
-  // Register variable write protocol notify function used to fix any
-  // inconsistency in MetaDataHmacVariable before the first variable write
-  // operation.
-  //
   NewGlobal->Flags.WriteInit  = FALSE;
   NewGlobal->Flags.WriteReady = FALSE;
-  Status = gMmst->MmRegisterProtocolNotify (
-                    &gSmmVariableWriteGuid,
-                    VariableWriteProtocolCallback,
-                    &VarWriteReg
-                    );
-  ASSERT_EFI_ERROR (Status);
-
-  Status = gMmst->MmRegisterProtocolNotify (
-                    &gEfiMmEndOfDxeProtocolGuid,
-                    ProtectedVariableEndOfDxeCallback,
-                    &EndOfDxeReg
-                    );
-  ASSERT_EFI_ERROR (Status);
 
   return Status;
 }

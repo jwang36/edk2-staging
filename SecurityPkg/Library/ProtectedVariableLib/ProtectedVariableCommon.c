@@ -60,23 +60,58 @@ GetProtectedVariableContextFromHob (
   OUT PROTECTED_VARIABLE_GLOBAL       **Global OPTIONAL
   )
 {
-  VOID                            *GuidHob;
-  PROTECTED_VARIABLE_CONTEXT_IN   *HobData;
+  VOID                            *Data;
+  UINTN                           DataSize;
+  EFI_PEI_HOB_POINTERS            Hob;
+  EFI_HOB_MEMORY_ALLOCATION       *MemoryAllocationHob;
 
-  GuidHob = GetFirstGuidHob (&gEdkiiProtectedVariableGlobalGuid);
-  if (GuidHob == NULL) {
-    return EFI_NOT_FOUND;
+  //
+  // Search the global from allocated memory blob.
+  //
+  Data = NULL;
+  DataSize = 0;
+  MemoryAllocationHob = NULL;
+  Hob.Raw = GetFirstHob (EFI_HOB_TYPE_MEMORY_ALLOCATION);
+  while (Hob.Raw != NULL) {
+    MemoryAllocationHob = (EFI_HOB_MEMORY_ALLOCATION *) Hob.Raw;
+    if (CompareGuid(&MemoryAllocationHob->AllocDescriptor.Name,
+		                &gEdkiiProtectedVariableGlobalGuid)) {
+      Data = (VOID *)(UINTN)
+             MemoryAllocationHob->AllocDescriptor.MemoryBaseAddress;
+      DataSize = (UINTN)MemoryAllocationHob->AllocDescriptor.MemoryLength;
+      break;
+	  }
+
+    Hob.Raw = GET_NEXT_HOB (Hob);
+    Hob.Raw = GetNextHob (EFI_HOB_TYPE_MEMORY_ALLOCATION, Hob.Raw);
   }
 
-  HobData = (PROTECTED_VARIABLE_CONTEXT_IN *)GET_GUID_HOB_DATA (GuidHob);
-  ASSERT (HobData->StructSize < GET_GUID_HOB_DATA_SIZE (GuidHob));
+  ASSERT (Data != NULL);
+
   if (ContextIn != NULL) {
-    *ContextIn = HobData;
+    *ContextIn = Data;
+    ASSERT ((*ContextIn)->StructSize < DataSize);
   }
 
   if (Global != NULL) {
-    *Global = (PROTECTED_VARIABLE_GLOBAL *)((UINTN)HobData + HobData->StructSize);
-    ASSERT ((HobData->StructSize + (*Global)->StructSize) <= GET_GUID_HOB_DATA_SIZE (GuidHob));
+    *Global = (PROTECTED_VARIABLE_GLOBAL *)
+              ((UINTN)Data + ((PROTECTED_VARIABLE_CONTEXT_IN *)Data)->StructSize);
+    ASSERT ((*Global)->StructSize < DataSize);
+    ASSERT ((((PROTECTED_VARIABLE_CONTEXT_IN *)Data)->StructSize
+             + (*Global)->StructSize) <= DataSize);
+
+    //
+    // Fix pointers in the HOB
+    //
+    if ((*Global)->Table.Address < (UINTN)Data
+        || (*Global)->Table.Address > (UINTN)Data + DataSize)
+    {
+      (*Global)->Table.Address = (EFI_PHYSICAL_ADDRESS)(*Global) + sizeof (PROTECTED_VARIABLE_GLOBAL);
+      (*Global)->ProtectedVariableCache = (*Global)->Table.Address
+                                          + (*Global)->TableCount * sizeof (UINT32);
+      (*Global)->ProtectedVariableCache = (EFI_PHYSICAL_ADDRESS)
+                                          ALIGN_VALUE ((*Global)->ProtectedVariableCache, 16);
+    }
   }
 
   return EFI_SUCCESS;
