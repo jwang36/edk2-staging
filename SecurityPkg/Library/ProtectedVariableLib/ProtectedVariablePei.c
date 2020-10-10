@@ -13,8 +13,89 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <Library/HobLib.h>
 #include <Library/ReportStatusCodeLib.h>
+#include <Library/MemoryAllocationLib.h>
 
 #include "ProtectedVariableInternal.h"
+
+PROTECTED_VARIABLE_GLOBAL *
+BuildProtectedVariableGlobal (
+  IN PROTECTED_VARIABLE_CONTEXT_IN    *ContextIn,
+  IN UINT32                           NvVarNumber,
+  IN UINT32                           NvVarCacheSize
+  )
+{
+  VOID                                *Buffer;
+  UINT32                              TotalSize;
+  PROTECTED_VARIABLE_GLOBAL           *Global;
+  EFI_PEI_HOB_POINTERS                Hob;
+  EFI_HOB_MEMORY_ALLOCATION           *MemoryAllocationHob;
+
+  //
+  // Build a HOB for Global as well as ContextIn. Memory layout:
+  //
+  //      ContextIn
+  //      Global
+  //      Variable Offset Table
+  //      Variable Cache
+  //
+  TotalSize = ContextIn->StructSize
+              + sizeof (PROTECTED_VARIABLE_GLOBAL)
+              + NvVarNumber * sizeof (UINT32)
+              + 16  /* Make sure of the alignment requirement of variables */
+              + NvVarCacheSize;
+  Buffer = AllocatePages (EFI_SIZE_TO_PAGES (TotalSize));
+  if (Buffer == NULL) {
+    ASSERT_EFI_ERROR (EFI_OUT_OF_RESOURCES);
+    return NULL;
+  }
+
+  //
+  // Mark the HOB holding the pages just allocated so that it can be
+  // identified later.
+  //
+  MemoryAllocationHob = NULL;
+  Hob.Raw = GetFirstHob (EFI_HOB_TYPE_MEMORY_ALLOCATION);
+  while (Hob.Raw != NULL) {
+    MemoryAllocationHob = (EFI_HOB_MEMORY_ALLOCATION *) Hob.Raw;
+    if ((UINTN)Buffer == (UINTN)MemoryAllocationHob->AllocDescriptor.MemoryBaseAddress) {
+      CopyGuid (&MemoryAllocationHob->AllocDescriptor.Name, &gEdkiiProtectedVariableGlobalGuid);
+      break;
+    }
+
+    Hob.Raw = GET_NEXT_HOB (Hob);
+    Hob.Raw = GetNextHob (EFI_HOB_TYPE_MEMORY_ALLOCATION, Hob.Raw);
+  }
+
+  //
+  // Keep the ContextIn in HOB for later uses.
+  //
+  CopyMem (Buffer, ContextIn, sizeof (*ContextIn));
+
+  Global = (PROTECTED_VARIABLE_GLOBAL *)((UINTN)Buffer + ContextIn->StructSize);
+  Global->StructVersion = PROTECTED_VARIABLE_CONTEXT_OUT_STRUCT_VERSION;
+  Global->StructSize    = TotalSize - ContextIn->StructSize;
+
+  //
+  // Last part is for caching protected variables, if any.
+  //
+  Global->Table.Address               = (EFI_PHYSICAL_ADDRESS)
+                                        ((UINTN) Global + sizeof (PROTECTED_VARIABLE_GLOBAL));
+  Global->TableCount                  = NvVarNumber;
+  Global->ProtectedVariableCache      = Global->Table.Address
+                                        + NvVarNumber * sizeof (UINT32);
+  Global->ProtectedVariableCache      = (EFI_PHYSICAL_ADDRESS)
+                                        ALIGN_VALUE (Global->ProtectedVariableCache, 16);
+  Global->ProtectedVariableCacheSize  = NvVarCacheSize;
+  Global->Flags.WriteInit             = FALSE;
+
+  SetMem (
+    (VOID *)(UINTN)Global->ProtectedVariableCache,
+    Global->ProtectedVariableCacheSize,
+    0xFF
+    );
+
+  return Global;
+}
 
 /**
 
@@ -422,8 +503,6 @@ ProtectedVariableLibInitialize (
   )
 {
   EFI_STATUS                          Status;
-  UINT32                              HobDataSize;
-  PROTECTED_VARIABLE_CONTEXT_IN       *GlobalHobData;
   UINT8                               *RootKey;
   UINT32                              KeySize;
   UINT32                              NvVarCacheSize;
@@ -459,47 +538,16 @@ ProtectedVariableLibInitialize (
   //      Variable Offset Table
   //      Variable Cache
   //
-  HobDataSize = ContextIn->StructSize
-                + sizeof (PROTECTED_VARIABLE_GLOBAL)
-                + VarNumber * sizeof (UINT32)
-                + 16  /* Make sure of the alignment requirement of variables */
-                + NvVarCacheSize;
-  GlobalHobData = BuildGuidHob (
-                     &gEdkiiProtectedVariableGlobalGuid,
-                     HobDataSize
-                     );
-  if (GlobalHobData == NULL) {
-    ASSERT (GlobalHobData != NULL);
+  Global = BuildProtectedVariableGlobal (ContextIn, VarNumber, NvVarCacheSize);
+  if (Global == NULL) {
     return EFI_OUT_OF_RESOURCES;
   }
 
-  //
-  // Keep the ContextIn in HOB for later uses.
-  //
-  CopyMem (GlobalHobData, ContextIn, sizeof (*ContextIn));
-
-  ContextIn           = GlobalHobData;
-  Global              = (PROTECTED_VARIABLE_GLOBAL *)
-                        ((UINTN)ContextIn + ContextIn->StructSize);
-
-  Global->StructVersion = PROTECTED_VARIABLE_CONTEXT_OUT_STRUCT_VERSION;
-  Global->StructSize    = sizeof (PROTECTED_VARIABLE_GLOBAL);
-
-  //
-  // Last part is for caching protected variables, if any.
-  //
-  Global->Table.Address               = (EFI_PHYSICAL_ADDRESS)((UINTN)Global
-                                                               + Global->StructSize);
-  Global->TableCount                  = VarNumber;
-  Global->ProtectedVariableCache      = Global->Table.Address + VarNumber * sizeof (UINT32);
-  Global->ProtectedVariableCache      = (EFI_PHYSICAL_ADDRESS)
-                                        ALIGN_VALUE (Global->ProtectedVariableCache, 16);
-  Global->ProtectedVariableCacheSize  = NvVarCacheSize;
-  Global->Flags.WriteInit             = FALSE;
 
   //
   // Get root key and generate HMAC key.
   //
+  RootKey = AllocateZeroPool (sizeof(Global->RootKey));
   Status = GetVariableKey (&RootKey, (UINTN *)&KeySize);
   if (EFI_ERROR (Status) || RootKey == NULL || KeySize < sizeof (Global->RootKey)) {
     ASSERT_EFI_ERROR (Status);
@@ -508,7 +556,8 @@ ProtectedVariableLibInitialize (
     return EFI_DEVICE_ERROR;
   }
   CopyMem (Global->RootKey, RootKey, sizeof (Global->RootKey));
-
+  FreePool (RootKey);
+  
   //
   // Derive the MetaDataHmacKey from root key
   //
@@ -564,7 +613,8 @@ ProtectedVariableLibInitialize (
     // There's no MetaDataHmacVariable found for protected variables. Suppose
     // the variable storage is compromised.
     //
-    Status = EFI_COMPROMISED_DATA;
+    // Todo: add logic to detect first boot here & 
+    Status = EFI_SUCCESS;//EFI_COMPROMISED_DATA;
   }
 
   if (EFI_ERROR (Status)) {

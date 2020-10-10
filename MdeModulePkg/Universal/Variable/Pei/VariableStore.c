@@ -137,6 +137,7 @@ GetNvVariableStore (
   //
   BackUpOffset      = 0;
   FtwLastWriteData  = NULL;
+  HobData           = NULL;
   GuidHob           = GetFirstGuidHob (&gEdkiiFaultTolerantWriteGuid);
 
   if (GuidHob != NULL) {

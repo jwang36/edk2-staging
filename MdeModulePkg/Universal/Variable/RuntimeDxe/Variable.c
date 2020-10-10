@@ -3174,7 +3174,7 @@ ReclaimForOS(
        (RemainingCommonRuntimeVariableSpace < mVariableModuleGlobal->MaxAuthVariableSize)) ||
       ((PcdGet32 (PcdHwErrStorageSize) != 0) &&
        (RemainingHwErrVariableSpace < PcdGet32 (PcdMaxHardwareErrorVariableSize)))){
-    Status = Reclaim (
+    Status = ReclaimEx (
             mVariableModuleGlobal->VariableGlobal.NonVolatileVariableBase,
             &mVariableModuleGlobal->NonVolatileLastVariableOffset,
             FALSE,
@@ -3363,7 +3363,7 @@ VariableWriteServiceInitialize (
       //
       // There must be something wrong in variable store, do reclaim operation.
       //
-      Status = Reclaim (
+      Status = ReclaimEx (
                  mVariableModuleGlobal->VariableGlobal.NonVolatileVariableBase,
                  &mVariableModuleGlobal->NonVolatileLastVariableOffset,
                  FALSE,

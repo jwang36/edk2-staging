@@ -1000,6 +1000,13 @@ VariableWriteServiceInitializeSmm (
 {
   EFI_STATUS    Status;
 
+  Status = ProtectedVariableLibWriteInit ();
+  if (EFI_ERROR (Status) && Status != EFI_UNSUPPORTED) {
+    DEBUG ((DEBUG_ERROR, "Variable protection service: write-init failed. Status = %r\n", Status));
+    ASSERT_EFI_ERROR (Status);
+    return;
+  }
+
   Status = VariableWriteServiceInitialize ();
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Variable write service initialization failed. Status = %r\n", Status));

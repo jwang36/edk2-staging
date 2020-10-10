@@ -276,7 +276,9 @@ RestoreVariableStoreFv (
 
     Size = (UINT32)VARIABLE_SIZE (&VariableInfo);
     Offset = OffsetTable[Index];
-    if ((Offset + Size) > Global->ProtectedVariableCacheSize) {
+    if (Size >= Global->ProtectedVariableCacheSize
+        || (Offset + Size) > Global->ProtectedVariableCacheSize) {
+      ASSERT (Size < Global->ProtectedVariableCacheSize);
       ASSERT ((Offset + Size) <= Global->ProtectedVariableCacheSize);
       FreePool (Buffer);
       return EFI_COMPROMISED_DATA;
@@ -433,6 +435,12 @@ ProtectedVariableLibWriteInit (
   //
   if (Global->Flags.WriteInit) {
     return EFI_SUCCESS;
+  }
+
+  Status = FixupHmacVariable ();
+  if (EFI_ERROR (Status)) {
+    ASSERT_EFI_ERROR (Status);
+    return Status;
   }
 
   if (!Global->Flags.WriteReady) {

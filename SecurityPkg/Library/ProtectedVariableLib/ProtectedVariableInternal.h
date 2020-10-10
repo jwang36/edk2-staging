@@ -102,7 +102,7 @@ typedef struct _PROTECTED_VARIABLE_GLOBAL {
     BOOLEAN                             Auth;
     BOOLEAN                             WriteInit;
     BOOLEAN                             WriteReady;
-    BOOLEAN                             Reserved;
+    BOOLEAN                             NoVariableCache;
   }                                     Flags;
 
   UINT32                                TableCount;
