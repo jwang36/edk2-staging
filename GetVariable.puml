@@ -1,14 +1,67 @@
 @startuml GetVariable Flow
 
-  UEFI -> "VariablePei/Smm" : GetVariable()
-  "VariablePei/Smm" -> "VariablePei/Smm" : Get from Cache
+participant UEFI
+participant "VariablePei(PreMem)" as PreMem
+participant "VariablePei(PostMem)/SMM" as PostMem
+participant SPI
 
-  activate "VariablePei/Smm"
-  opt Encrypted
-    "VariablePei/Smm" -> "VariablePei/Smm" : DecryptVariable()
+  ==Pre-Memory==
+  UEFI -> PreMem : GetVariable()
+
+  alt Check variable storage type
+    |||
+  else HOB variable
+    PreMem -> UEFI: Return data with SUCCESS
+    |||
+  else NV variable
+    PreMem <- SPI: Requested variable
+    PreMem -> PreMem: Calculate HASH(variable)
+
+    alt Check HASH(variable) against cached value
+      |||
+    else Hash value match
+      opt if encrypted
+        PreMem -> PreMem : DecryptVariable()
+      end
+      PreMem -> UEFI: Return data with SUCCESS
+      |||
+    else Hash value mismatch
+      PreMem --> UEFI: ReportStatusCode(FAIL)
+      PreMem -> PreMem: CpuDeadLoop()
+      |||
+    end
   end
-  deactivate
 
-  "VariablePei/Smm" --> UEFI : Return Data
+  ...
+
+  ==Post-Memory==
+  UEFI --> PostMem: NotifyPpi (gEfiPeiMemoryDiscoveredPpiGuid)
+  group MemoryDiscoveredPpiNotifyCallback()
+    PostMem -> SPI ++: Get all variables
+    SPI -> PostMem --: All variables data
+
+    PostMem -> PostMem ++: Calculate hash for each variable
+    deactivate PostMem
+
+    alt Verify hash of each variable against cached value
+      |||
+    else Hash value match
+      PostMem -> PostMem: Cache variable in memory
+    else Hash value mismatch
+      PostMem -> UEFI: ReportStatusCode(FAIL)
+      PostMem -> PostMem: CpuDeadLoop()
+    end
+
+  end
+
+  ...
+  UEFI -> PostMem : GetVariable()
+  PostMem -> PostMem : Get requested variable\nfrom cache
+
+  opt Encrypted
+    PostMem -> PostMem : DecryptVariable()
+  end
+
+  PostMem --> UEFI : Return data
 
 @enduml

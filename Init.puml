@@ -1,29 +1,405 @@
-@startuml Protected Variable Init
-  VariablePei -> PlatformKeyGen ++ : VariableKey
-  return Key
+################################################################################
+@startuml Protected Variable Init Sequence
 
-  VariablePei -> VariablePei: HKDF_Expand(SHA256,Key,"HMAC_KEY")
+  VariablePei -> RPMC ++: RequestMonotonicCounter(1)
+  return Counter1
 
-  VariablePei -> SPI ++ : GetAllVariables
-  return (Var1, .., VarN, MetaDataHmacVar)
+  VariablePei -> RPMC ++: RequestMonotonicCounter(2)
+  return Counter2
 
-  VariablePei -> RPMC ++: RequestMonotonicCounter()
-  return Counter
+  alt enumerate all variables
+  |||
+  else found variables in HOB (recovery or factory boot)
+    VariablePei -> UEFI: GetAllVariables(HOB(gEfiVariableGuid)\n  or HOB(gEfiAuthenticatedVariableGuid))
+    return (Var1, .., VarN)
+    opt Counter1 != Counter2
+      VariablePei -> RPMC: IncrementMonotonicCounter(min(Counter1,Counter2))
+      VariablePei -> VariablePei: min(Counter1,Counter2) += |Counter1-Counter2|
+    end
+    |||
+  else found variables in SPI
+    VariablePei -> SPI ++ : GetAllVariables(SPI)
+    return (Var1, .., VarN, VarErrorFlag, VarHmac)
+    |||
+  end
 
-  VariablePei -> VariablePei : HMAC(Key, Var1||..||VarN||Counter)
-  activate VariablePei
+  |||
+  VariablePei -> VariablePei: Calc & cache (HASH(Var1), .., HASH(VarN))
+  |||
 
-  opt If 2-MetaDataHmacVar
-      VariablePei -> VariablePei:HMAC(Key, Var1||..||VarN||Counter+1)
-      opt If HMAC Matches
-          VariablePei -> RPMC: IncrementMonotonicCounter()
+  loop if more variable keys available
+    VariablePei -> KeyService ++ : VariableKey
+    return Key
+
+    VariablePei -> VariablePei: HKDF_Expand(SHA256,Key,"HMAC_KEY")
+    VariablePei -> VariablePei: HMAC2(Key, HASH(Var1) || .. || HASH(VarN) || Counter2)
+
+    alt check VarHmac(s)
+    |||
+    else no VarHmac
+      VariablePei -> VariablePei: Construct VarHmac in memory
+      break <font color=green>exit loop with success
       end
+      |||
+    else one VarHmac: VarHmac(IN_DEL) or VarHmac(ADDED)
+      alt check HMAC2 only
+      |||
+      else HMAC2 match
+        opt VarHmac(IN_DEL)
+          VariablePei -> VariablePei: Elevate VarHmac(IN_DEL) to VarHmac(ADDED)
+        end
+        break <font color=green>exit loop with success
+        end
+        |||
+      else HMAC2 mis-match or Counter2 > Counter1
+        break <font color=red>exit loop with failure
+        end
+        |||
+      end
+      |||
+    else two VarHmac(s): VarHmac(IN_DEL) and VarHmac(ADDED)
+      alt check Counter1 against Counter2
+        |||
+      else (Counter1 - Counter2) == 0
+        alt HMAC2 vs. VarHmac(ADDED)
+          |||
+        else match
+          break <font color=green>exit loop with success
+            VariablePei -> VariablePei: Delete VarHmac(IN_DEL)
+          end
+        else mis-match
+          break <font color=red>exit loop with failure
+          end
+        end
+        |||
+      else (Counter1 - Counter2) == 1
+        VariablePei -> VariablePei: HMAC1(Key, HASH(Var1)||..||HASH(VarN)||Counter1)
+        alt
+          |||
+        else HAMC2 match VarHmac(IN_DEL)
+          break <font color=green>exit loop with success
+            VariablePei -> VariablePei: Delete VarHmac(ADDED)
+            VariablePei -> VariablePei: Elevate VarHmac(IN_DEL) to VarHmac(ADDED)
+          end
+          |||
+        else HAMC1 match VarHmac(ADDED)
+          break <font color=green>exit loop with success
+            VariablePei -> VariablePei: Delete VarHmac(IN_DEL)
+          end
+          |||
+        else mis-match
+          break <font color=red>exit loop with failure
+          end
+        end
+        |||
+      else all other cases
+        break <font color=red>exit loop with failure
+        end
+        |||
+      end
+    end
   end
-  deactivate VariablePei
 
-  alt If HMAC Matches
-      VariablePei --> UEFI: BuildGuidHob(&gEdkiiProtectedVariableGlobalGuid)
-  else If HMAC Mismatches
-      VariablePei -> Platform: VariableRcbRecovery/ReportStatusCode
+  |||
+
+  alt check HMAC validation result
+  |||
+  else HMAC match
+    opt Counter1 - Counter2 == 1
+      VariablePei -> RPMC: IncrementMonotonicCounter(2)
+      VariablePei -> VariablePei: ++Counter2
+      opt VarHmac(IN_DEL) is valid
+        VariablePei -> VariablePei: HMAC2(NewKey, HASH(Var1)||..||HASH(VarN)||Counter2)
+        VariablePei -> VariablePei: Refersh VarHmac with HMAC2
+      end
+    end
+    VariablePei -> Platform: <font color=green><b>ReportStatusCode(PASS)
+  else HMAC mis-match
+    VariablePei -> Platform: <font color=red><b>ReportStatusCode(FAIL)
+    VariablePei -> VariablePei: <font color=red><b>CpuDeadLoop()
   end
+
+  |||
+
+  opt valid VariableKey is not the latest one
+    VariablePei -> KeyService ++ : RegenerateVariableKey()
+    return NewKey
+
+    VariablePei -> VariablePei: HKDF_Expand(SHA256, NewKey, "HMAC_KEY")
+    VariablePei -> VariablePei: HMAC2(NewKey, HASH(Var1)||..||HASH(VarN)||Counter2)
+    VariablePei -> VariablePei: Refersh VarHmac with HMAC2
+  end
+
+  |||
+
+  VariablePei --> UEFI: BuildGuidHob(&gEdkiiProtectedVariableGlobalGuid)
+  VariablePei --> UEFI: PeiServicesNotifyPpi(PostMemoryHook)
+
 @enduml
+
+
+################################################################################
+@startuml Protected Variable Init Flow
+skinparam ConditionEndStyle hline
+
+|VariablePei|
+|#LightGray|No VarHmac|
+|#AntiqueWhite|One VarHmac|
+|#LightBlue|Two VarHmac|
+
+|VariablePei|
+Start
+
+: Get RPMC Counter1;
+: Get RPMC Counter2;
+if (Variables in HOB?) then (yes)
+  : Enumerate all variables in HOB;
+  if (Counter1 == Counter2) then (no)
+    :Increment Counter1 or Counter2\nto match each other;
+  else (yes)
+  endif
+else (no)
+  : Enumerate all variables on NV storage;
+endif
+
+|VariablePei|
+: Re-order each variable per its name and guid;
+: Calculate and cache HASH for each variable;
+: Create indices to HASH value of each variable;
+
+if (Counter1 - Counter2 == 0 ||\nCounter1 - Counter2 == 1) then (yes)
+
+  repeat
+
+    :Get variable RootKey;
+    :Derive variable Key=\n  HKDF_Expand(SHA256, RootKey, "HMAC_KEY");
+    :Calculate HMAC2=\n  HMAC(Key, HASH(Var1)||..||HASH(VarN)||Counter2);
+
+    split
+      |No VarHmac|
+      :No VarHmac}
+      if (Variables in HOB) then (yes)
+        :HMAC match/
+        :Create VarHmac with HMAC2;
+      else (no)
+        :HMAC mismatch/
+      endif
+    split again
+      |One VarHmac|
+      :VarHmac(ADDED) / VarHamc(IN_DEL)}
+      if (VarHmac(ADDED) == HMAC2\nor\nVarHmac(IN_DEL) == HMAC2) then (true)
+        :HMAC match/
+        floating note left
+          (A)☑ Counter1++
+          (B)☐ VarHmac.old(IN_DEL)
+          (C)☐ VarHmac.new(ADDED)
+          (D)☐ VarNew(ADDED)
+          (E)☐ Counter2++
+          (F)☐ VarHmac.old(DEL)
+        end note
+        floating note left
+          (A)☑ Counter1++
+          (B)☑ VarHmac.old(IN_DEL)
+          (C)☐ VarHmac.new(ADDED)
+          (D)☐ VarNew(ADDED)
+          (E)☐ Counter2++
+          (F)☐ VarHmac.new(DEL)
+        end note
+        floating note left
+          (A)☑ Counter1++
+          (B)☑ VarHmac.old(IN_DEL)
+          (C)☑ VarHmac.new(ADDED)
+          (D)☑ VarNew(ADDED)
+          (E)☑ Counter2++
+          (F)☑ VarHmac.old(DEL)
+        end note
+      else (false)
+        :HMAC mistmatch/
+      endif
+    split again
+      |Two VarHmac|
+      :VarHmac(ADDED) + VarHamc(IN_DEL)}
+      if (Counter1 != Counter2) then (true)
+        if (VarHmac(IN_DEL) == HMAC2) then (true)
+          :HMAC match/
+          :Delete VarHmac(ADDED);
+          floating note left
+            (A)☑ Counter1++
+            (B)☑ VarHmac.old(IN_DEL)
+            (C)☑ VarHmac.new(ADDED)
+            (D)☐ VarNew(ADDED)
+            (E)☐ Counter2++
+            (F)☐ VarHmac.old(DEL)
+          end note
+        else (false)
+          :HMAC1=\n  HMAC(Key, HASH(Var1)||..||HASH(VarN)||Counter1);
+          if (VarHmac(ADDED) == HMAC1) then (true)
+            :HMAC match/
+            :Delete VarHmac(IN_DEL);
+            floating note left
+              (A)☑ Counter1++
+              (B)☑ VarHmac.old(IN_DEL)
+              (C)☑ VarHmac.new(ADDED)
+              (D)☑ VarNew(ADDED)
+              (E)☐ Counter2++
+              (F)☐ VarHmac.old(DEL)
+            end note
+          else (false)
+            :HMAC mismatch/
+          endif
+        endif
+      else (false)
+        if (VarHmac(ADDED) == HMAC2) then (true)
+          :HMAC match/
+          :Delete VarHmac(IN_DEL);
+          floating note left
+            (A)☑ Counter1++
+            (B)☑ VarHmac.old(IN_DEL)
+            (C)☑ VarHmac.new(ADDED)
+            (D)☑ VarNew(ADDED)
+            (E)☑ Counter2++
+            (F)☐ VarHmac.old(DEL)
+          end note
+        else (false)
+          :HMAC mismatch/
+        endif
+      endif
+    |VariablePei|
+    end split
+  repeat while (HMAC mismatch and\nMore RootKeys are available?) is (yes)
+
+else (no)
+|VariablePei|
+  :HMAC mismatch/
+endif
+
+|VariablePei|
+if (HMAC match) then (yes)
+  :ReportStatusCode(PASS);
+
+  if (Counter2 < Counter1) then (true)
+    :Increment Counter2;
+  else (false)
+  endif
+
+  if (VarHmac.State == IN_DEL) then (true)
+    :VarHmac.State <== ADDED;
+  else (false)
+  endif
+
+  if (Key is the latest one?) then (no)
+    :Regenerate variable RootKey;
+    :Re-derive variable Key;
+  else (yes)
+    if (Counter2 is just incremented?) then (yes)
+    else (no)
+      stop
+    endif
+  endif
+
+  :Re-calculate HMAC2;
+  :Update VarHmac value with HMAC2;
+
+else (no)
+  :ReportStatusCode(FAIL);
+  :CpuDeadLoop();
+  end
+endif
+
+stop
+
+@enduml
+
+################################################################################
+@startuml HMAC Algorithm Changes
+
+digraph hmac {
+    compound=true;
+    rankdir="LR";
+    ranksep=1;
+    newrank=true;
+    edge[style=dashed];
+    labeljust="l";
+
+    graph [pad=".5", nodesep="2", ranksep="1"];
+    rankdir=LR;
+
+    {
+        node [style=invis];
+        1->2->3->4->5 [style=invis];
+    }
+
+    subgraph cluster_var_hash {
+        label = "HASH(var)";
+        style="filled";
+        fillcolor="LightBlue";
+
+        node [shape=box,width=1];
+
+        hash_01 [label="hash(var_01)"];
+        hash_02 [label="hash(var_02)"];
+        hash_03 [label="hash(var_03)"];
+        hash_nn [label="hash(var_nn)"];
+
+        hash_01 -> hash_02 [arrowhead=diamond];
+        hash_02 -> hash_03 [arrowhead=diamond];
+        hash_03 -> "...." [arrowhead=diamond];
+        "...." -> hash_nn [arrowhead=diamond];
+    }
+
+    subgraph cluster_hamc_new {
+        label = "HMAC(all) - new";
+        style="filled";
+        fillcolor="LightBlue";
+
+        hmac_all_new [label="MetaDataHmacVar"];
+    }
+
+    var_01 -> hash_01 [style="dotted", arrowhead="vee", color="blue"];
+    var_02 -> hash_02 [style="dotted", arrowhead="vee", color="blue"];
+    var_03 -> hash_03 [style="dotted", arrowhead="vee", color="blue"];
+    "..."  -> "...."  [style="dotted", arrowhead="vee", color="blue"];
+    var_nn -> hash_nn [style="dotted", arrowhead="vee", color="blue"];
+
+    hash_nn -> hmac_all_new [
+        lhead=cluster_hamc_new,
+        ltail=cluster_var_hmac
+    ];
+
+    subgraph cluster_vars_old {
+        label = "Variables";
+        node [width=1];
+
+        var_01;
+        var_02;
+        var_03;
+        "...";
+        var_nn;
+
+        var_01 -> var_02 [arrowhead=diamond];
+        var_02 -> var_03 [arrowhead=diamond];
+        var_03 -> "..." [arrowhead=diamond];
+        "..." -> var_nn [arrowhead=diamond];
+    }
+
+    subgraph cluster_hamc_curr {
+        label = "HMAC(all) - old";
+
+        hmac_all_old [label="MetaDataHmacVar"];
+    }
+
+    var_nn -> hmac_all_old [
+        lhead=cluster_hamc_curr,
+        ltail=cluster_vars_old
+    ];
+
+
+    {rank = same; 1; var_01; hash_01;}
+    {rank = same; 2; var_02; hash_02;}
+    {rank = same; 3; var_03; hash_03;}
+    {rank = same; 4; "..."; "....";}
+    {rank = same; 5; var_nn; hash_nn;}
+}
+
+@enduml
+################################################################################

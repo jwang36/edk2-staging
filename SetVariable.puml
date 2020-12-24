@@ -4,45 +4,65 @@ participant VariableSmm
 participant SPI
 participant RPMC
 
-  opt If Write-NOT-Init-ed
-    VariableSmm -> SPI : UpdateState(OldMetaDataHmacVar, IN_DELETE)
-    VariableSmm -> RPMC : RequestMonotonicCounter()
-    RPMC --> VariableSmm : Counter
-    VariableSmm -> VariableSmm : HMAC(Key, Var1||..||VarN||Counter+1)
-    VariableSmm -> SPI : AddVariable(NewMetaDataHmacVar, ADDED)
-    VariableSmm -> RPMC : IncrementMonotonicCounter()
-    VariableSmm -> SPI : UpdateState(OldMetaDataHmacVar, DELETED)
+  == VariableWriteProtocolCallback() ==
+    alt Write init mode
+      |||
+    else Variable recovery/factory mode
+      VariableSmm -> RPMC : IncrementMonotonicCounter(1)
+      VariableSmm -> RPMC : IncrementMonotonicCounter(2)
+      VariableSmm -> RPMC : RequestMonotonicCounter(2)
+      RPMC --> VariableSmm : Counter2
+      VariableSmm -> VariableSmm : HMAC(Key, HASH(Var1)||..||(HASH(VarN)||Counter2)
+      VariableSmm -> VariableSmm : Construct VarHmac with HMAC
+      VariableSmm -> SPI : Flush all variabes to NV storage
+      |||
+    else Normal variable init mode
+      VariableSmm -> RPMC : RequestMonotonicCounter(2)
+      RPMC --> VariableSmm : Counter2
+      VariableSmm -> RPMC : IncrementMonotonicCounter(1)
+      VariableSmm -> SPI : UpdateState(VarHmac.old, IN_DEL)
+      VariableSmm -> VariableSmm : HMAC(Key, HASH(Var1)||..||HASH(VarN)||Counter2+1)
+      VariableSmm -> SPI : AddVariable(VarHmac.new, ADDED)
+      VariableSmm -> RPMC : IncrementMonotonicCounter(2)
+      VariableSmm -> SPI : UpdateState(VarHmac.old, DEL)
+    end
+  ====
+
+  ...
+  UEFI -> VariableSmm: SetVariable(**VarNew**)
+
+  VariableSmm -> VariableSmm: Calc HASH(VarNew)
+
+  VariableSmm -> RPMC ++: IncrementMonotonicCounter(**1**)
+  return
+  rnote right of VariableSmm: [A] Incremented RPMC Counter1
+
+  VariableSmm -> SPI : UpdateState(VarHmac.old, **IN_DEL**)
+  rnote right of VariableSmm: [B] Marked VarHmac as In-Delete-Transition
+
+  opt If encryption enabled
+    VariableSmm -> VariableSmm : EncryptVariable(**VarNew**)
   end
 
-  UEFI -> VariableSmm ++ : SetVariable(VarData)
+  VariableSmm -> RPMC ++: RequestMonotonicCounter(**2**)
+  return **Counter2**
 
-  VariableSmm -> SPI : UpdateState(OldMetaDataHmacVar,**IN_DELETE**)
-  note right of VariableSmm : A
-
-  opt If Encryption-Enabled
-    VariableSmm -> VariableSmm : EncryptVariable(**VarData**)
-  end
-
-  VariableSmm -> RPMC : RequestMonotonicCounter()
-  RPMC --> VariableSmm : Counter
-
-  activate VariableSmm
-  VariableSmm -> VariableSmm : HMAC(Key, Var1||..||VarN||**VarData**||**Counter+1**)
-  VariableSmm -> SPI ++ : AddVariable(NewMetaDataHmacVar,**ADDED**)
-  note right of VariableSmm : B
+  VariableSmm -> VariableSmm: HMAC(Key, HASH(Var1) || .. || HASH(VarN) || HASH(**VarNew**) || **Counter2+1**)
+  VariableSmm -> SPI ++ : AddVariable(VarHmac.new, **ADDED**)
   return
-  deactivate VariableSmm
+  rnote right of VariableSmm: [C] Force added a new VarHmac with state ADDED
 
-  VariableSmm -> SPI ++ : AddVariable(VarData,**ADDED**)
-  note right of VariableSmm : C
+  VariableSmm -> SPI ++ : AddVariable(VarNew, **ADDED**)
   return
+  rnote right of VariableSmm: [D] Added requested variable
 
-  VariableSmm -> RPMC ++ : **IncrementMonotonicCounter()**
-  note right of VariableSmm : D
+  VariableSmm -> RPMC ++ : IncrementMonotonicCounter(**2**)
   return
+  rnote right of VariableSmm: [E] Incremented RPMC Counter2
 
-  VariableSmm -> SPI : UpdateState(OldMetaDataHmacVar,**DELETED**)
-  note right of VariableSmm : E
+  VariableSmm -> SPI ++: UpdateState(VarHmac.old, **DEL**)
+  return
+  rnote right of VariableSmm: [F] Marked old copy of VarHmac as Deleted (deleted permanently)
 
-  return EFI_SUCCESS
+  VariableSmm -> UEFI: EFI_SUCCESS
 @enduml

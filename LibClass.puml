@@ -2,39 +2,46 @@
 
     package platform {
       class RpmcLib {
-        +RequestMonotonicCounter()
-        +IncrementMonotonicCounter()
+        +RequestMonotonicCounter (Index, *Value)
+        +IncrementMonotonicCounter (Index)
       }
 
-      class VariableKeyLib {
-        +GetVariableKey()
-        +RegenerateVariableKey()
-        +LockVariableKeyInterface()
+      class KeyServicePpi {
+        +GenerateKey (*Salt,SaltSize,*Key,KeySize,PreviousKey)
       }
     }
 
     package edk2 {
       class ProtectedVariableLib {
-        +ProtectedVariableLibInitialize()
-        +ProtectedVariableLibGetData()
-        +ProtectedVariableLibGetDataInfo()
-        +ProtectedVariableLibWriteInit()
-        +ProtectedVariableLibUpdate()
-        +ProtectedVariableLibWriteFinal()
-        +ProtectedVariableLibGetStore()
-        +ProtectedVariableLibReclaim()
+        +ProtectedVariableLibInitialize (*ContextIn)
+        +ProtectedVariableLibFindNext (*NameSize,*Name,*Guid)
+        +ProtectedVariableLibFindNextEx (*VarInfo)
+        +ProtectedVariableLibGetByName (*Name,*Guid,*Attr,*Size,*Data)
+        +ProtectedVariableLibGetByBuffer (*Var,*Size,*Data,Auth)
+        +ProtectedVariableLibGetByInfo (*VarInfo)
+        +ProtectedVariableLibWriteInit ()
+        +ProtectedVariableLibUpdate ()
+        +ProtectedVariableLibWriteFinal ()
+        +ProtectedVariableLibReclaim ()
       }
 
       class EncryptionVariableLib {
-        +EncryptVariable()
-        +DecryptVariable()
-        +GetCipherDataInfo()
-        +SetCipherDataInfo()
+        +EncryptVariable (*VarInfo)
+        +DecryptVariable (*VarInfo)
+        +GetCipherDataInfo (*VarInfo)
+        +SetCipherDataInfo (*VarInfo)
+      }
+
+      class VariableKeyLib {
+        +GetVariableKey (*Key, *Size)
+        +RegenerateVariableKey ()
+        +LockVariableKeyInterface ()
       }
     }
 
     ProtectedVariableLib --> EncryptionVariableLib
     ProtectedVariableLib --> RpmcLib
     ProtectedVariableLib --> VariableKeyLib
+    VariableKeyLib --> KeyServicePpi
 
 @enduml
