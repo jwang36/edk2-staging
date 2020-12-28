@@ -1,31 +1,38 @@
 @startuml ProtectedVariableLib instances
     ProtectedVariableLib <|-- PeiProtectedVariableLib
     PeiProtectedVariableLib : ProtectedVariableLibInitialize()
-    PeiProtectedVariableLib : ProtectedVariableLibGetData()
-    PeiProtectedVariableLib : ProtectedVariableLibGetStore()
+    PeiProtectedVariableLib : ProtectedVariableLibGetByName()
+    PeiProtectedVariableLib : ProtectedVariableLibGetByBuffer()
+    PeiProtectedVariableLib : ProtectedVariableLibGetByInfo()
+    PeiProtectedVariableLib : ProtectedVariableLibFindNext()
+    PeiProtectedVariableLib : ProtectedVariableLibFindNextEx()
 
     ProtectedVariableLib <|-- SmmProtectedVariableLib
     SmmProtectedVariableLib : ProtectedVariableLibInitialize()
-    SmmProtectedVariableLib : ProtectedVariableLibGetData()
-    SmmProtectedVariableLib : ProtectedVariableLibGetDataInfo()
+    SmmProtectedVariableLib : ProtectedVariableLibFindNext()
+    SmmProtectedVariableLib : ProtectedVariableLibFindNextEx()
+    SmmProtectedVariableLib : ProtectedVariableLibGetByName()
+    SmmProtectedVariableLib : ProtectedVariableLibGetByBuffer()
+    SmmProtectedVariableLib : ProtectedVariableLibGetByInfo()
     SmmProtectedVariableLib : ProtectedVariableLibWriteInit()
-    SmmProtectedVariableLib : ProtectedVariableLibUpdate()
     SmmProtectedVariableLib : ProtectedVariableLibWriteFinal()
-    SmmProtectedVariableLib : ProtectedVariableLibGetStore()
+    SmmProtectedVariableLib : ProtectedVariableLibUpdate()
     SmmProtectedVariableLib : ProtectedVariableLibReclaim()
 
     ProtectedVariableLib <|-- SmmRuntimeProtectedVariableLib
     SmmRuntimeProtectedVariableLib : ProtectedVariableLibInitialize()
-    SmmRuntimeProtectedVariableLib : ProtectedVariableLibGetData()
+    SmmRuntimeProtectedVariableLib : ProtectedVariableLibGetByName()
 
     ProtectedVariableLib <|-- DxeRuntimeProtectedVariableLib
     DxeRuntimeProtectedVariableLib : ProtectedVariableLibInitialize()
-    DxeRuntimeProtectedVariableLib : ProtectedVariableLibGetData()
-    DxeRuntimeProtectedVariableLib : ProtectedVariableLibGetDataInfo()
+    DxeRuntimeProtectedVariableLib : ProtectedVariableLibFindNext()
+    DxeRuntimeProtectedVariableLib : ProtectedVariableLibFindNextEx()
+    DxeRuntimeProtectedVariableLib : ProtectedVariableLibGetByName()
+    DxeRuntimeProtectedVariableLib : ProtectedVariableLibGetByBuffer()
+    DxeRuntimeProtectedVariableLib : ProtectedVariableLibGetByInfo()
     DxeRuntimeProtectedVariableLib : ProtectedVariableLibWriteInit()
     DxeRuntimeProtectedVariableLib : ProtectedVariableLibUpdate()
     DxeRuntimeProtectedVariableLib : ProtectedVariableLibWriteFinal()
-    DxeRuntimeProtectedVariableLib : ProtectedVariableLibGetStore()
     DxeRuntimeProtectedVariableLib : ProtectedVariableLibReclaim()
 
     VariablePei ..> PeiProtectedVariableLib

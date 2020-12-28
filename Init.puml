@@ -38,7 +38,7 @@
     |||
     else no VarHmac
       VariablePei -> VariablePei: Construct VarHmac in memory
-      break <font color=green>exit loop with success
+      break <font color=green>exit loop with HMAC-Match
       end
       |||
     else one VarHmac: VarHmac(IN_DEL) or VarHmac(ADDED)
@@ -48,11 +48,11 @@
         opt VarHmac(IN_DEL)
           VariablePei -> VariablePei: Elevate VarHmac(IN_DEL) to VarHmac(ADDED)
         end
-        break <font color=green>exit loop with success
+        break <font color=green>exit loop with HMAC-Match
         end
         |||
       else HMAC2 mis-match or Counter2 > Counter1
-        break <font color=red>exit loop with failure
+        break <font color=red>exit loop with HMAC-Mismatch
         end
         |||
       end
@@ -64,11 +64,11 @@
         alt HMAC2 vs. VarHmac(ADDED)
           |||
         else match
-          break <font color=green>exit loop with success
+          break <font color=green>exit loop with HMAC-Match
             VariablePei -> VariablePei: Delete VarHmac(IN_DEL)
           end
         else mis-match
-          break <font color=red>exit loop with failure
+          break <font color=red>exit loop with HMAC-Mismatch
           end
         end
         |||
@@ -77,23 +77,23 @@
         alt
           |||
         else HAMC2 match VarHmac(IN_DEL)
-          break <font color=green>exit loop with success
+          break <font color=green>exit loop with HMAC-Match
             VariablePei -> VariablePei: Delete VarHmac(ADDED)
             VariablePei -> VariablePei: Elevate VarHmac(IN_DEL) to VarHmac(ADDED)
           end
           |||
         else HAMC1 match VarHmac(ADDED)
-          break <font color=green>exit loop with success
+          break <font color=green>exit loop with HMAC-Match
             VariablePei -> VariablePei: Delete VarHmac(IN_DEL)
           end
           |||
         else mis-match
-          break <font color=red>exit loop with failure
+          break <font color=red>exit loop with HMAC-Mismatch
           end
         end
         |||
       else all other cases
-        break <font color=red>exit loop with failure
+        break <font color=red>exit loop with HMAC-Mismatch
         end
         |||
       end
@@ -338,12 +338,10 @@ digraph hmac {
 
         hash_01 [label="hash(var_01)"];
         hash_02 [label="hash(var_02)"];
-        hash_03 [label="hash(var_03)"];
         hash_nn [label="hash(var_nn)"];
 
         hash_01 -> hash_02 [arrowhead=diamond];
-        hash_02 -> hash_03 [arrowhead=diamond];
-        hash_03 -> "...." [arrowhead=diamond];
+        hash_02 -> "...." [arrowhead=diamond];
         "...." -> hash_nn [arrowhead=diamond];
     }
 
@@ -357,11 +355,11 @@ digraph hmac {
 
     var_01 -> hash_01 [style="dotted", arrowhead="vee", color="blue"];
     var_02 -> hash_02 [style="dotted", arrowhead="vee", color="blue"];
-    var_03 -> hash_03 [style="dotted", arrowhead="vee", color="blue"];
     "..."  -> "...."  [style="dotted", arrowhead="vee", color="blue"];
     var_nn -> hash_nn [style="dotted", arrowhead="vee", color="blue"];
 
-    hash_nn -> hmac_all_new [
+    hash_nn -> counter2 [arrowhead=diamond];
+    counter2 -> hmac_all_new [
         lhead=cluster_hamc_new,
         ltail=cluster_var_hmac
     ];
@@ -372,13 +370,11 @@ digraph hmac {
 
         var_01;
         var_02;
-        var_03;
         "...";
         var_nn;
 
         var_01 -> var_02 [arrowhead=diamond];
-        var_02 -> var_03 [arrowhead=diamond];
-        var_03 -> "..." [arrowhead=diamond];
+        var_02 -> "..." [arrowhead=diamond];
         "..." -> var_nn [arrowhead=diamond];
     }
 
@@ -388,7 +384,8 @@ digraph hmac {
         hmac_all_old [label="MetaDataHmacVar"];
     }
 
-    var_nn -> hmac_all_old [
+    var_nn -> counter [arrowhead=diamond];
+    counter -> hmac_all_old [
         lhead=cluster_hamc_curr,
         ltail=cluster_vars_old
     ];
@@ -396,9 +393,9 @@ digraph hmac {
 
     {rank = same; 1; var_01; hash_01;}
     {rank = same; 2; var_02; hash_02;}
-    {rank = same; 3; var_03; hash_03;}
-    {rank = same; 4; "..."; "....";}
-    {rank = same; 5; var_nn; hash_nn;}
+    {rank = same; 3; "..."; "....";}
+    {rank = same; 4; var_nn; hash_nn;}
+    {rank = same; 5; counter; counter2;}
 }
 
 @enduml

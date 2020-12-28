@@ -7,17 +7,17 @@
       }
 
       class KeyServicePpi {
-        +GenerateKey (*Salt,SaltSize,*Key,KeySize,PreviousKey)
+        +GenerateKey (*Salt, SaltSize, *Key, KeySize, PreviousKey)
       }
     }
 
     package edk2 {
       class ProtectedVariableLib {
         +ProtectedVariableLibInitialize (*ContextIn)
-        +ProtectedVariableLibFindNext (*NameSize,*Name,*Guid)
+        +ProtectedVariableLibFindNext (*NameSize, *Name, *Guid)
         +ProtectedVariableLibFindNextEx (*VarInfo)
-        +ProtectedVariableLibGetByName (*Name,*Guid,*Attr,*Size,*Data)
-        +ProtectedVariableLibGetByBuffer (*Var,*Size,*Data,Auth)
+        +ProtectedVariableLibGetByName (*Name, *Guid, *Attr, *Size, *Data)
+        +ProtectedVariableLibGetByBuffer (*Var, *Size, *Data, Auth)
         +ProtectedVariableLibGetByInfo (*VarInfo)
         +ProtectedVariableLibWriteInit ()
         +ProtectedVariableLibUpdate ()
@@ -33,7 +33,7 @@
       }
 
       class VariableKeyLib {
-        +GetVariableKey (*Key, *Size)
+        +GetVariableKey (*Key, *Size, PreviousKey)
         +RegenerateVariableKey ()
         +LockVariableKeyInterface ()
       }
